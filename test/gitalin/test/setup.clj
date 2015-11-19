@@ -23,7 +23,7 @@
 
 (defn init-store [dir]
   (let [path (.getAbsolutePath dir)]
-    (c/create-store!)))
+    (c/create-store! path)))
 
 (def gen-store
   (gen/fmap init-store gen-temp-dir))

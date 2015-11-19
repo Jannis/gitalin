@@ -15,4 +15,7 @@
            :ref/type (:type ref)})))
 
 (defn repo->atoms [repo]
-  (flatten (map reference->atoms (reference/load-all repo))))
+  (->> repo
+       reference/load-all
+       (map reference->atoms)
+       (into [])))
