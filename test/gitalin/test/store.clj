@@ -31,6 +31,17 @@
     (with-conn (c/connect path)
       (is (= [] (s/repo->atoms (:repo conn)))))))
 
+(defn find-atoms [atoms v]
+  (filter (fn [atom]
+            (every? identity
+                    (map-indexed #(or (nil? %2)
+                                      (= (get atom %1) %2))
+                                 v)))
+          atoms))
+
+(defn find-atom [atoms v]
+  (first (find-atoms atoms v)))
+
 (defspec adding-one-object-creates-atoms 5
   (prop/for-all [v (gen/tuple setup/gen-store
                               gen/uuid
@@ -44,24 +55,28 @@
                       :message "Create object"}
                      [[:store/add "class" (str uuid) property string]])
         (let [atoms (s/repo->atoms (:repo conn))
-              head-commit (first (filter #(= ["HEAD" :ref/commit]
-                                             [(s/id %) (s/property %)])
-                                         atoms))
-              master-commit (first (filter #(= ["refs:heads:master" :ref/commit]
-                                               [(s/id %) (s/property %)])
-                                           atoms))]
+              head-commit (find-atom atoms ["HEAD" :ref/commit nil])
+              master-commit (find-atom atoms ["refs:heads:master" :ref/commit])]
           (and (is (every? vector? atoms))
                (is (every? #(= 3 (count %)) atoms))
+               (is (= 14 (count atoms)))
+
+               ;; Verify ref atoms are present
                (is (some #{["HEAD" :ref/name "HEAD"]} atoms))
                (is (some #{["HEAD" :ref/type "branch"]} atoms))
-               (is (some #{["refs:heads:master"
-                            :ref/name
-                            "refs:heads:master"]}
+               (is (some #{["refs:heads:master" :ref/name "refs:heads:master"]}
                          atoms))
-               (is (some #{["refs:heads:master"
-                            :ref/type
-                            "branch"]}
+               (is (some #{["refs:heads:master" :ref/type "branch"]}
                          atoms))
                (is (not (nil? head-commit)))
                (is (not (nil? master-commit)))
-               (is (= (head-commit 2) (master-commit 2)))))))))
+               (is (= (head-commit 2) (master-commit 2)))
+
+               ;; Verify commit atoms are present
+               (is (not (empty? (find-atoms atoms [nil :commit/sha1 nil]))))
+               (is (not (empty? (find-atoms atoms [nil :commit/author]))))
+               (is (not (empty? (find-atoms atoms [nil :commit/committer]))))
+               (is (not (empty? (find-atoms atoms
+                                            [nil
+                                             :commit/message
+                                             "Create object"]))))))))))

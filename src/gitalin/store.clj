@@ -25,21 +25,46 @@
   (value [this]
     (this 2)))
 
+(defn kv-value-set? [[k v]]
+  (not (nil? v)))
+
 (defn reference->atoms [ref]
   (let [id (:name ref)
         props {:ref/name id
                :ref/commit (-> ref :head :sha1)
                :ref/type (:type ref)}]
     (->> props
-         (filter #(not (nil? (second %))))
-         (map #(vector id (first %) (second %))))))
+         (filter kv-value-set?)
+         (map #(into [id] %)))))
+
+(defn collect-commits [repo commit]
+  (concat [commit]
+          (map #(collect-commits repo %)
+               (:parents commit))))
+
+(defn commit->atoms [commit]
+  (let [id (:sha1 commit)
+        props {:commit/sha1 (:sha1 commit)
+               :commit/author (:author commit)
+               :commit/committer (:committer commit)
+               :commit/message (:message commit)}
+        atoms (->> props
+                   (filter kv-value-set?)
+                   (map #(into [id] %)))]
+    (if-not (empty? (:parents commit))
+      (conj atoms (map #(vector id :commit/parent %) parents))
+      atoms)))
 
 (defn repo->atoms [repo]
-  (->> repo
-       reference/load-all
-       (map reference->atoms)
-       (apply concat)
-       (into [])))
+  (let [references (reference/load-all repo)
+        commits (->> references
+                     (map :head)
+                     (map #(collect-commits repo %))
+                     (apply concat))]
+    (into []
+          (mapcat concat
+                  (map reference->atoms references)
+                  (map commit->atoms commits)))))
 
 (defn commit-info? [info]
   (and (map? info)
