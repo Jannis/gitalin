@@ -15,3 +15,10 @@
 
 (defn connect [path]
   (->Connection path (git-repo/load path)))
+
+(defn connection? [conn]
+  (instance? Connection conn))
+
+(defn transact! [conn info mutations]
+  {:pre [(connection? conn)]}
+  (store/transact! (:repo conn) info mutations))

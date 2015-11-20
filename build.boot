@@ -5,12 +5,15 @@
  :resource-paths #{"src"}
  :dependencies '[;; Boot
                  [adzerk/boot-test "1.0.5" :scope "test"]
+
                  ;; Testing
                  [org.clojure/test.check "0.9.0" :scope "test"]
                  [me.raynes/fs "1.4.6" :scope "test"]
+
                  ;; General
                  [clj-jgit "0.8.8"]
                  [com.stuartsierra/component "0.3.0"]
+                 [com.cognitect/transit-clj "0.8.281"]
                  [danlentz/clj-uuid "0.1.6"]])
 
 (task-options!
