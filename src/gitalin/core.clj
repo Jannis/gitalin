@@ -19,6 +19,13 @@
 (defn connection? [conn]
   (instance? Connection conn))
 
+(defn commit-info? [info]
+  (map? info))
+
 (defn transact! [conn info mutations]
-  {:pre [(connection? conn)]}
+  {:pre [(connection? conn) (commit-info? info) (vector? mutations)]}
   (store/transact! (:repo conn) info mutations))
+
+(defn q [conn q & args]
+  {:pre [(map? q)]}
+  (store/q (:repo conn) q args))

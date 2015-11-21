@@ -56,7 +56,9 @@
                      [[:store/add "class" (str uuid) property string]])
         (let [atoms (s/repo->atoms (:repo conn))
               head-commit (find-atom atoms ["HEAD" :ref/commit nil])
-              master-commit (find-atom atoms ["refs:heads:master" :ref/commit])]
+              master-commit (find-atom atoms
+                                       ["refs:heads:master"
+                                        :ref/commit])]
           (and (is (every? vector? atoms))
                (is (every? #(= 3 (count %)) atoms))
                (is (= 14 (count atoms)))
@@ -64,7 +66,9 @@
                ;; Verify ref atoms are present
                (is (some #{["HEAD" :ref/name "HEAD"]} atoms))
                (is (some #{["HEAD" :ref/type "branch"]} atoms))
-               (is (some #{["refs:heads:master" :ref/name "refs:heads:master"]}
+               (is (some #{["refs:heads:master"
+                            :ref/name
+                            "refs:heads:master"]}
                          atoms))
                (is (some #{["refs:heads:master" :ref/type "branch"]}
                          atoms))
@@ -73,10 +77,44 @@
                (is (= (head-commit 2) (master-commit 2)))
 
                ;; Verify commit atoms are present
-               (is (not (empty? (find-atoms atoms [nil :commit/sha1 nil]))))
-               (is (not (empty? (find-atoms atoms [nil :commit/author]))))
-               (is (not (empty? (find-atoms atoms [nil :commit/committer]))))
+               (is (not (empty? (find-atoms atoms
+                                            [nil :commit/sha1 nil]))))
+               (is (not (empty? (find-atoms atoms
+                                            [nil :commit/author]))))
+               (is (not (empty? (find-atoms atoms
+                                            [nil :commit/committer]))))
                (is (not (empty? (find-atoms atoms
                                             [nil
                                              :commit/message
                                              "Create object"]))))))))))
+
+(defspec simple-query-for-head-ref
+  (prop/for-all [v (gen/tuple setup/gen-store
+                              gen/uuid
+                              gen/keyword
+                              gen/any)]
+    (let [[path uuid property string] v]
+      (with-conn (c/connect path)
+        (c/transact! conn
+                     {:target "HEAD"
+                      :author {:name "Test User" :email "<test@user.org>"}
+                      :message "Create object"}
+                     [[:store/add "class" (str uuid) property string]])
+        (is (= "HEAD"
+               (c/q conn
+                    '{:find ?ref
+                      :where [[?ref :ref/name "HEAD"]]})))
+        (is (= ["refs:heads:master" "refs:heads:master"]
+               (c/q conn
+                    '{:find [?name ?ref]
+                      :where [[?ref :ref/name ?name]]})))
+        (is (= ["HEAD" "refs:heads:master"]
+                (c/q conn
+                     '{:find [?head ?master]
+                       :where
+                       [[?head :ref/name "HEAD"]
+                        [?master :ref/name "refs:heads:master"]]})))
+        (is (= "branch"
+               (c/q conn
+                    '{:find ?type
+                      :where [[?ref :ref/type ?type]]})))))))
