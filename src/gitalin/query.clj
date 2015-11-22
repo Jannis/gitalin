@@ -100,13 +100,16 @@
 
 ;;;; Queries
 
-;;; Query parsing
+;;; Query representation
+
+(defrecord Query [find where])
 
 (defrecord Variable [symbol])
 (defrecord Constant [value])
 (defrecord Pattern [elements])
 (defrecord Function [symbol args])
-(defrecord Query [find where])
+
+;;; Query parsing
 
 (defn parse-variable [form]
   (when (and (symbol? form)
@@ -123,6 +126,13 @@
                (conj %1 res)
                (reduced nil))
             [] form)))
+
+(defn parse-set [parse-fn form]
+  (when (set? form)
+    (reduce #(if-let [res (parse-fn %2)]
+               (conj %1 res)
+               (reduced nil))
+            #{} form)))
 
 (defn parse-find [form]
   (or (parse-variable form)
@@ -142,6 +152,7 @@
 
 (defn parse-function-argument [form]
   (or (parse-variable form)
+      (parse-set parse-function-argument form)
       (parse-constant form)))
 
 (defn parse-function-arguments [form]
@@ -172,18 +183,6 @@
 
 (defrecord Context [conn relations matches])
 
-(defn collapse-relations [relations more]
-  (merge-with (fn [a b]
-                (cond
-                  (= a b) a
-                  :else   (conj a b)))
-              relations
-              more))
-
-(defn atom-matches-id? [id' atom]
-  (or (instance? Variable id')
-      (= id' (p/id atom))))
-
 (defn matches-variable? [element value]
   (instance? Variable element))
 
@@ -195,45 +194,36 @@
   (or (matches-variable? element value)
       (matches-constant? element value)))
 
-(defn matches-pattern? [pattern atom]
-  (when (instance? Pattern pattern)
-    (and (matches-element? ((:elements pattern) 0) (p/id atom))
-         (matches-element? ((:elements pattern) 1) (p/property atom))
-         (matches-element? ((:elements pattern) 2) (p/value atom)))))
+(defn match-fields-against-pattern [pattern atom]
+  (map-indexed (fn [index element]
+                 (if (matches-element? element (atom index))
+                   element
+                   nil))
+               (:elements pattern)))
 
-(defn filter-atoms [pattern atoms]
+(defn collect-match-vars [field-matches]
+  (mapv (fn [element]
+          (if (instance? Variable element)
+            element
+            nil))
+        field-matches))
+
+(defn match-atom-against-pattern [pattern res atom]
+  (println "match-atom-against-pattern" pattern res atom)
+  (let [matches (match-fields-against-pattern pattern atom)
+        vars (collect-match-vars matches)]
+    (println "  matches >>" matches)
+    (println "  vars    >>" vars)
+    (if (not-any? nil? matches)
+      (conj res (vary-meta atom assoc :vars vars))
+      res)))
+
+(defn match-atoms-against-pattern [pattern atoms]
   {:pre [(instance? Pattern pattern)]}
-  (filterv #(matches-pattern? pattern %) atoms))
-
-(defn collect-atom-relations [pattern relations atom]
-  {:pre [(instance? Pattern pattern)]}
-  (let [vals (map-indexed (fn [index element]
-                            (when (instance? Variable element)
-                              [(:symbol element) (atom index)]))
-                          (:elements pattern))
-        rels (reduce (fn [rels [var value]]
-                       (if (contains? rels var)
-                         (if (sequential? (rels var))
-                           (update rels var conj value)
-                           (if (= value (rels var))
-                             rels
-                             (update rels var vector value)))
-                         (assoc rels var value)))
-                     relations
-                     (remove nil? vals))]
-    (println "collect atom relations")
-    (println "  pattern >>" pattern)
-    (println "  atom    >>" atom)
-    (println "  rels    >>" rels)
-    rels))
-
-(defn collect-relations [pattern atoms]
-  {:pre [(instance? Pattern pattern)]}
-  (reduce #(collect-atom-relations pattern %1 %2) {} atoms))
-
-(defn lookup-relation [context var]
-  (when (instance? Variable var)
-    ((:relations context) (:symbol var))))
+  (println "match-atoms-against-pattern" pattern atoms)
+  (keep identity
+        (reduce #(match-atom-against-pattern pattern %1 %2)
+                [] atoms)))
 
 (defn dispatch-on-property-base [context pattern]
   (let [property (second (:elements pattern))
@@ -247,16 +237,15 @@
 
 (defmethod resolve-pattern :ref
   [context pattern]
+  (println "resolve-pattern" context pattern)
   (let [id (first (:elements pattern))
         atoms (if (instance? Variable id)
                 (p/references->atoms (-> context :conn p/adapter))
                 (p/reference->atoms (-> context :conn p/adapter) id))
         ; TODO: atoms (map #(into [(-> context :conn p/conn-id)]))
-        matches (filter-atoms pattern atoms)
-        relations (collect-relations pattern matches)]
-    (println "relations" relations)
+        matches (match-atoms-against-pattern pattern atoms)]
+    (println "  matches >>" matches)
     (-> context
-        (update :relations collapse-relations relations)
         (update :matches concat matches))))
 
 (defn resolve-pattern-clause [context clause]
@@ -264,39 +253,49 @@
   (when (instance? Pattern clause)
     (resolve-pattern context clause)))
 
-;; (defn evaluate-function [function atom]
-;;   false)
-
-;; (defn matches-function? [function atom]
-;;   (when (instance? Function function)
-;;     (println "matches-function?" function atom)
-;;     (and (instance? Function function)
-;;          (evaluate-function function atom))))
-
 (defn dispatch-on-function-symbol [context function]
   (:symbol function))
 
-(defn resolve-function-args [context args]
-  (map (fn [arg]
-         (cond
-           (instance? Variable arg)
-           (lookup-relation context arg)
+(defn resolve-var-in-atom [var atom]
+  (let [atom-vars (:vars (meta atom))]
+    (first
+     (keep-indexed (fn [index atom-var]
+                     (when (= var atom-var)
+                       (atom index)))
+                   atom-vars))))
 
-           (instance? Constant arg)
-           (:value arg)
+(defn resolve-vars-in-atom [vars atom]
+  (mapv #(resolve-var-in-atom % atom) vars))
 
-           :else
-           arg))
-       args))
+(defn resolve-vars-in-atoms [vars atoms]
+  (distinct
+   (if (sequential? vars)
+     (map #(resolve-vars-in-atom vars %) atoms)
+     (map #(resolve-var-in-atom vars %) atoms))))
+
+(defn resolve-arg [context atom arg]
+  (cond
+    (instance? Variable arg) (resolve-var-in-atom arg atom)
+    (set? arg) (into #{} (map #(resolve-arg context atom %)) arg)
+    (instance? Constant arg) (:value arg)
+    :else arg))
+
+(defn resolve-args [context atom args]
+  (map #(resolve-arg context atom %) args))
 
 (defmulti resolve-function dispatch-on-function-symbol)
 
 (defmethod resolve-function 'some
   [context function]
   (println "resolve-function 'some" function)
-  (let [args (resolve-function-args context (:args function))]
-    (println "  args >>" args)
-    context))
+  (letfn [(apply-some [atom]
+            (let [args (resolve-args context atom (:args function))
+                  res (apply some args)]
+              res))]
+    (println "  matches >>" (:matches context))
+    (println "  result  >>")
+    (filter apply-some (:matches context))
+    (update context :matches #(filter apply-some %))))
 
 (defn resolve-function-clause [context clause]
   (println "resolve-function-clause" clause)
@@ -309,19 +308,10 @@
 
 (defn collect [vars context]
   (println "collect" vars context)
-  (cond
-    ;; (set? vars)
-    ;; (mapv #(lookup-relation context %) vars)
-
-    (sequential? vars)
-    (if (> (count (:matches context)) 1)
-      (map-indexed (fn [index atom]
-                     (mapv #((lookup-relation context %) index) vars))
-                   (:matches context))
-      (mapv #(lookup-relation context %) vars))
-
-    :else
-    (lookup-relation context vars)))
+  (let [res (resolve-vars-in-atoms vars (:matches context))]
+    (if (= (count res) 1)
+      (first res)
+      res)))
 
 (defn q [conn q args]
   {:pre [(satisfies? p/IConnection conn)
