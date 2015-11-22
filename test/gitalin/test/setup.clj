@@ -6,6 +6,7 @@
             [com.stuartsierra.component :as component]
             [me.raynes.fs :as fs]
             [gitalin.git.repo :as repo]
+            [gitalin.adapter :as a]
             [gitalin.core :as c]))
 
 ;;;; Create temporary directories
@@ -23,7 +24,7 @@
 
 (defn init-store [dir]
   (let [path (.getAbsolutePath dir)]
-    (c/create-store! path)))
+    (a/adapter (c/create-store! path))))
 
 (def gen-store
   (gen/fmap init-store gen-temp-dir))
@@ -41,7 +42,7 @@
       c/connect))
 
 (defn delete-store-from-conn [conn]
-  (delete-store (c/path conn)))
+  (delete-store (:path (c/adapter conn))))
 
 ;;;; Use connections in specs
 

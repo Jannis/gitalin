@@ -7,29 +7,29 @@
             [clojure.test.check.properties :as prop]
             [gitalin.test.setup :as setup :refer [with-conn]]
             [gitalin.core :as c]
-            [gitalin.store :as s]))
+            [gitalin.protocols :as p]
+            [gitalin.adapter :as a]))
 
 (defspec vector-satisfies-atom-interface
   (prop/for-all [v (gen/tuple (gen/not-empty gen/string)
                               gen/keyword
                               gen/any)]
     (let [atom (into [] v)]
-      (and (is (satisfies? s/ICoAtom atom))
-           (is (= (s/id atom) (v 0)))
-           (is (= (s/property atom) (v 1)))
-           (is (= (s/value atom) (v 2)))))))
+      (and (is (satisfies? p/ICoatom atom))
+           (is (= (p/id atom) (v 0)))
+           (is (= (p/property atom) (v 1)))
+           (is (= (p/value atom) (v 2)))))))
 
 (defspec connection-is-constructed-correctly 10
-  (prop/for-all [path setup/gen-store]
-    (with-conn (c/connect path)
+  (prop/for-all [adapter setup/gen-store]
+    (with-conn (c/connect adapter)
       (and (is (c/connection? conn))
-           (is (satisfies? c/IConnection conn))
-           (is (= path (c/path conn)))))))
+           (is (satisfies? p/IConnection conn))))))
 
 (defspec empty-store-has-no-atoms 5
-  (prop/for-all [path setup/gen-store]
-    (with-conn (c/connect path)
-      (is (= [] (s/repo->atoms (:repo conn)))))))
+  (prop/for-all [adapter setup/gen-store]
+    (with-conn (c/connect adapter)
+      (is (= [] (a/repo->atoms (p/adapter conn)))))))
 
 (defn find-atoms [atoms v]
   (filter (fn [atom]
@@ -47,14 +47,14 @@
                               gen/uuid
                               gen/keyword
                               gen/any)]
-    (let [[path uuid property string] v]
-      (with-conn (c/connect path)
+    (let [[adapter uuid property string] v]
+      (with-conn (c/connect adapter)
         (c/transact! conn
                      {:target "HEAD"
                       :author {:name "Test User" :email "<test@user.org>"}
                       :message "Create object"}
-                     [[:store/add "class" (str uuid) property string]])
-        (let [atoms (s/repo->atoms (:repo conn))
+                     [[:object/add "class" (str uuid) property string]])
+        (let [atoms (a/repo->atoms (p/adapter conn))
               head-commit (find-atom atoms ["HEAD" :ref/commit nil])
               master-commit (find-atom atoms
                                        ["refs:heads:master"
@@ -88,18 +88,18 @@
                                              :commit/message
                                              "Create object"]))))))))))
 
-(defspec simple-query-for-head-ref
+(defspec querying-refs-works
   (prop/for-all [v (gen/tuple setup/gen-store
                               gen/uuid
                               gen/keyword
                               gen/any)]
-    (let [[path uuid property string] v]
-      (with-conn (c/connect path)
+    (let [[adapter uuid property string] v]
+      (with-conn (c/connect adapter)
         (c/transact! conn
                      {:target "HEAD"
                       :author {:name "Test User" :email "<test@user.org>"}
                       :message "Create object"}
-                     [[:store/add "class" (str uuid) property string]])
+                     [[:object/add "class" (str uuid) property string]])
         (is (= "HEAD"
                (c/q conn
                     '{:find ?ref
@@ -117,4 +117,10 @@
         (is (= "branch"
                (c/q conn
                     '{:find ?type
-                      :where [[?ref :ref/type ?type]]})))))))
+                      :where [[?ref :ref/type ?type]]})))
+        #_(is (= ["HEAD" "refs:heads:master"]
+               (c/q conn
+                    '{:find ?ref
+                      :in ?type
+                      :where [[?ref :ref/type ?type]]}
+                    "branch")))))))
