@@ -104,21 +104,22 @@
                (c/q conn
                     '{:find ?ref
                       :where [[?ref :ref/name "HEAD"]]})))
-        (is (= ["refs:heads:master" "refs:heads:master"]
+        (is (= [["HEAD" "HEAD"]
+                ["refs:heads:master" "refs:heads:master"]]
                (c/q conn
                     '{:find [?name ?ref]
                       :where [[?ref :ref/name ?name]]})))
         (is (= ["HEAD" "refs:heads:master"]
                 (c/q conn
-                     '{:find [?head ?master]
+                     '{:find ?ref
                        :where
-                       [[?head :ref/name "HEAD"]
-                        [?master :ref/name "refs:heads:master"]]})))
+                       [[?ref :ref/name ?name]
+                        (some ?name ["HEAD" "refs:heads:master"])]})))
         (is (= "branch"
                (c/q conn
                     '{:find ?type
                       :where [[?ref :ref/type ?type]]})))
-        #_(is (= ["HEAD" "refs:heads:master"]
+        (is (= ["HEAD" "refs:heads:master"]
                (c/q conn
                     '{:find ?ref
                       :in ?type
