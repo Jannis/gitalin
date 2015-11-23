@@ -51,5 +51,30 @@
   `(let [~(symbol "conn") ~conn]
      (try
        ~@body
-       (finally
-         (delete-store-from-conn ~(symbol "conn"))))))
+       (delete-store-from-conn ~(symbol "conn"))
+       (catch Exception e#
+         (delete-store-from-conn ~(symbol "conn"))
+         (throw e#)))))
+
+;;;; Generate transactions
+
+(def gen-transactions
+  (gen/vector
+   (gen/hash-map
+    :info (gen/hash-map
+           :target (gen/return "HEAD")
+           :author (gen/hash-map
+                    :name gen/string-alphanumeric
+                    :email gen/string-alphanumeric)
+           :committer (gen/hash-map
+                       :name gen/string-alphanumeric
+                       :email gen/string-alphanumeric)
+           :message gen/string)
+    :data (gen/vector
+           (gen/fmap
+            vec
+            (gen/tuple (gen/return :object/add)
+                       (gen/not-empty gen/string-alphanumeric)
+                       (gen/fmap str gen/uuid)
+                       gen/keyword
+                       gen/any))))))
