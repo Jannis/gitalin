@@ -9,7 +9,7 @@
   (connect [this])
   (disconnect [this])
   (references->atoms [this])
-  (reference->atoms [this name])
+  (reference->atoms [this id])
   (transact! [this info mutations]))
 
 (defprotocol IConnection

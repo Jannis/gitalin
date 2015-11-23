@@ -189,8 +189,15 @@
      (map #(resolve-var-in-atom vars %) atoms))))
 
 (defn resolve-var-in-atoms [atoms var]
-  (let [val (distinct (map #(resolve-var-in-atom var %) atoms))]
-    (if-not (empty? val) val nil)))
+  (let [val (into #{}
+                  (comp (map #(resolve-var-in-atom var %))
+                        (keep identity))
+                  atoms)]
+    (if-not (empty? val)
+      (if (> (count val) 1)
+        val
+        (first val))
+      nil)))
 
 (defn resolve-var [context var]
   {:pre [(instance? Context context)
@@ -271,7 +278,8 @@
   (let [id (first (:elements pattern))
         atoms (if (instance? Variable id)
                 (p/references->atoms (-> context :conn p/adapter))
-                (p/reference->atoms (-> context :conn p/adapter) id))
+                (p/reference->atoms (-> context :conn p/adapter)
+                                    (:value id)))
         matches (match-atoms-against-pattern context pattern atoms)
         ; TODO: atoms (map #(into [(-> context :conn p/conn-id)]))
         ]
@@ -324,8 +332,11 @@
 (defn collect [var-or-vars context]
   (println "collect" var-or-vars context)
   (let [res (if (sequential? var-or-vars)
-              (apply mapv vector (resolve-vars context var-or-vars))
+              (into #{}
+                    (apply map vector
+                           (resolve-vars context var-or-vars)))
               (resolve-var context var-or-vars))]
+    (println "res" res)
     (if (= (count res) 1)
       (first res)
       res)))

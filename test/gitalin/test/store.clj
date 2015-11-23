@@ -55,22 +55,26 @@
                       :message "Create object"}
                      [[:object/add "class" (str uuid) property string]])
         (let [atoms (a/repo->atoms (p/adapter conn))
-              head-commit (find-atom atoms ["HEAD" :ref/commit nil])
+              head-commit (find-atom atoms ["reference/HEAD"
+                                            :ref/commit
+                                            nil])
               master-commit (find-atom atoms
-                                       ["refs:heads:master"
+                                       ["reference/refs:heads:master"
                                         :ref/commit])]
           (and (is (every? vector? atoms))
                (is (every? #(= 3 (count %)) atoms))
                (is (= 14 (count atoms)))
 
                ;; Verify ref atoms are present
-               (is (some #{["HEAD" :ref/name "HEAD"]} atoms))
-               (is (some #{["HEAD" :ref/type "branch"]} atoms))
-               (is (some #{["refs:heads:master"
+               (is (some #{["reference/HEAD" :ref/name "HEAD"]} atoms))
+               (is (some #{["reference/HEAD" :ref/type "branch"]} atoms))
+               (is (some #{["reference/refs:heads:master"
                             :ref/name
                             "refs:heads:master"]}
                          atoms))
-               (is (some #{["refs:heads:master" :ref/type "branch"]}
+               (is (some #{["reference/refs:heads:master"
+                            :ref/type
+                            "branch"]}
                          atoms))
                (is (not (nil? head-commit)))
                (is (not (nil? master-commit)))
@@ -100,26 +104,35 @@
                       :author {:name "Test User" :email "<test@user.org>"}
                       :message "Create object"}
                      [[:object/add "class" (str uuid) property string]])
-        (is (= "HEAD"
+        (is (= "reference/HEAD"
                (c/q conn
                     '{:find ?ref
                       :where [[?ref :ref/name "HEAD"]]})))
-        (is (= [["HEAD" "HEAD"]
-                ["refs:heads:master" "refs:heads:master"]]
+        (is (= "HEAD"
+               (c/q conn
+                    '{:find ?name
+                      :where [["reference/HEAD" :ref/name ?name]]})))
+        (is (= "branch"
+               (c/q conn
+                    '{:find ?type
+                      :where [[?ref :ref/type ?type]]})))
+        (is (re-matches #"[0-9abcdef]{40}"
+                        (c/q conn
+                             '{:find ?sha1
+                               :where [[?ref :ref/name "HEAD"]
+                                       [?ref :ref/commit ?sha1]]})))
+        (is (= #{["HEAD" "reference/HEAD"]
+                 ["refs:heads:master" "reference/refs:heads:master"]}
                (c/q conn
                     '{:find [?name ?ref]
                       :where [[?ref :ref/name ?name]]})))
-        (is (= "HEAD"
+        (is (= "reference/HEAD"
                 (c/q conn
                      '{:find ?ref
                        :where
                        [[?ref :ref/name ?name]
                         (some #{?name} ["HEAD"])]})))
-        (is (= "branch"
-               (c/q conn
-                    '{:find ?type
-                      :where [[?ref :ref/type ?type]]})))
-        (is (= ["HEAD" "refs:heads:master"]
+        (is (= #{"reference/HEAD" "reference/refs:heads:master"}
                (c/q conn
                     '{:find ?ref
                       :in ?type

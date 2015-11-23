@@ -1,5 +1,6 @@
 (ns gitalin.adapter
-  (:require [gitalin.git.coerce :refer [to-oid]]
+  (:require [clojure.string :as str]
+            [gitalin.git.coerce :refer [to-oid]]
             [gitalin.git.commit :as commit]
             [gitalin.git.ident :as ident]
             [gitalin.git.repo :as git-repo]
@@ -48,8 +49,8 @@
       (reference/load repo (:target info)))))
 
 (defn reference-obj->atoms [ref]
-  (let [id (:name ref)
-        props {:ref/name id
+  (let [id (str "reference/" (:name ref))
+        props {:ref/name (:name ref)
                :ref/commit (-> ref :head :sha1)
                :ref/type (:type ref)}]
     (->> props
@@ -64,8 +65,9 @@
   (disconnect [this]
     (dissoc this :repo))
 
-  (reference->atoms [this name]
-    (reference-obj->atoms (reference/load repo name)))
+  (reference->atoms [this id]
+    (let [name (second (str/split id #"/" 2))]
+      (reference-obj->atoms (reference/load repo name))))
 
   (references->atoms [this]
     (let [references (reference/load-all repo)]
