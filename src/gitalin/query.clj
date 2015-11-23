@@ -190,25 +190,30 @@
 
 (defn resolve-var-in-atoms [atoms var]
   (let [val (distinct (map #(resolve-var-in-atom var %) atoms))]
-    (if (> (count val) 1)
-      val
-      (first val))))
+    (if-not (empty? val) val nil)))
 
 (defn resolve-var [context var]
+  {:pre [(instance? Context context)
+         (instance? Variable var)]}
   (or (resolve-var-in-context context var)
       (resolve-var-in-atoms (:matches context) var)))
 
 (defn resolve-vars [context vars]
+  {:pre [(instance? Context context)
+         (every? #(instance? Variable %) vars)]}
   (mapv #(resolve-var context %) vars))
 
 (defn matches-variable? [context element value]
   (println "matches-variable?" element value)
   (and (instance? Variable element)
-       (let [var-val (resolve-var context element)]
-         (println "  var-val >>" var-val)
-         (println "  val     >>" val)
-         (or (nil? var-val)
-             (= var-val value)))))
+       (let [var-value (resolve-var context element)]
+         (println "  var-value >>" var-value)
+         (println "  value     >>" value)
+         (or (nil? var-value)
+             (if (coll? var-value)
+               (or (some #{value} var-value)
+                   (= value var-value))
+               (= var-value value))))))
 
 (defn matches-constant? [element value]
   (println "matches-constant?" element value)
@@ -234,20 +239,21 @@
             nil))
         field-matches))
 
-(defn match-atom-against-pattern [pattern context atom]
-  (println "match-atom-against-pattern" pattern atom)
+(defn match-atom-against-pattern [pattern context res atom]
+  (println "match-atom-against-pattern" pattern res atom)
   (let [matches (match-fields-against-pattern context pattern atom)
         vars (collect-match-vars matches)]
     (println "  matches >>" matches)
     (println "  vars    >>" vars)
     (if (not-any? nil? matches)
-      (update context :matches conj (vary-meta atom assoc :vars vars))
-      context)))
+      (conj res (vary-meta atom assoc :vars vars))
+      res)))
 
 (defn match-atoms-against-pattern [context pattern atoms]
   {:pre [(instance? Pattern pattern)]}
   (println "match-atoms-against-pattern" pattern atoms)
-  (reduce #(match-atom-against-pattern pattern %1 %2) context atoms))
+  (reduce #(match-atom-against-pattern pattern context %1 %2)
+          #{} atoms))
 
 (defn dispatch-on-property-base [context pattern]
   (let [property (second (:elements pattern))
@@ -266,11 +272,11 @@
         atoms (if (instance? Variable id)
                 (p/references->atoms (-> context :conn p/adapter))
                 (p/reference->atoms (-> context :conn p/adapter) id))
-        context (match-atoms-against-pattern context pattern atoms)
+        matches (match-atoms-against-pattern context pattern atoms)
         ; TODO: atoms (map #(into [(-> context :conn p/conn-id)]))
         ]
-    (println "new context >>" context)
-    context))
+    (println "new matches >>" matches)
+    (update context :matches into matches)))
 
 (defn resolve-pattern-clause [context clause]
   (println "resolve-pattern-clause" clause)
@@ -315,9 +321,11 @@
   (or (resolve-pattern-clause context clause)
       (resolve-function-clause context clause)))
 
-(defn collect [vars context]
-  (println "collect" vars context)
-  (let [res (resolve-vars context vars)]
+(defn collect [var-or-vars context]
+  (println "collect" var-or-vars context)
+  (let [res (if (sequential? var-or-vars)
+              (apply mapv vector (resolve-vars context var-or-vars))
+              (resolve-var context var-or-vars))]
     (if (= (count res) 1)
       (first res)
       res)))
@@ -336,7 +344,7 @@
               {})
         _ (println "ins" ins)
         results (reduce resolve-clause
-                        (Context. conn ins [])
+                        (Context. conn ins #{})
                         (:where q))]
     (println "results >>" results)
     (collect (:find q) results)))

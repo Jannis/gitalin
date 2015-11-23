@@ -100,16 +100,16 @@
                       :author {:name "Test User" :email "<test@user.org>"}
                       :message "Create object"}
                      [[:object/add "class" (str uuid) property string]])
-        #_(is (= "HEAD"
+        (is (= "HEAD"
                (c/q conn
                     '{:find ?ref
                       :where [[?ref :ref/name "HEAD"]]})))
-        #_(is (= [["HEAD" "HEAD"]
+        (is (= [["HEAD" "HEAD"]
                 ["refs:heads:master" "refs:heads:master"]]
                (c/q conn
                     '{:find [?name ?ref]
                       :where [[?ref :ref/name ?name]]})))
-        #_(is (= "HEAD"
+        (is (= "HEAD"
                 (c/q conn
                      '{:find ?ref
                        :where
@@ -118,17 +118,8 @@
         (is (= "branch"
                (c/q conn
                     '{:find ?type
-                      :in [?names]
-                      :where
-                      [[?ref :ref/type ?type]
-                       [?ref :ref/name ?name]
-                       (some #{?name} ?names)]}
-                    ["HEAD" "refs:heads:master"])))
-        #_(is (= "branch"
-               (c/q conn
-                    '{:find ?type
                       :where [[?ref :ref/type ?type]]})))
-        #_(is (= ["HEAD" "refs:heads:master"]
+        (is (= ["HEAD" "refs:heads:master"]
                (c/q conn
                     '{:find ?ref
                       :in ?type
