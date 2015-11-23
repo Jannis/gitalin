@@ -51,11 +51,34 @@
 (defn reference-obj->atoms [ref]
   (let [id (str "reference/" (:name ref))
         props {:ref/name (:name ref)
-               :ref/commit (-> ref :head :sha1)
+               :ref/commit (str "commit/" (-> ref :head :sha1))
                :ref/type (:type ref)}]
     (->> props
          (filter kv-value-set?)
          (map #(into [id] %)))))
+
+(defn collect-commits [repo commit]
+  (flatten
+   (into [commit]
+         (mapv (fn [sha1]
+                 (->> sha1
+                      (to-oid repo)
+                      (commit/load repo)
+                      (collect-commits repo)))
+               (:parents commit)))))
+
+(defn commit-obj->atoms [commit]
+  (let [id (str "commit/" (:sha1 commit))
+        props {:commit/sha1 (:sha1 commit)
+               :commit/author (:author commit)
+               :commit/committer (:committer commit)
+               :commit/message (:message commit)}
+        atoms (->> props
+                   (filter kv-value-set?)
+                   (map #(into [id] %)))
+        parent-atoms (some->> (:parents commit)
+                              (mapv #(vector id :commit/parent %)))]
+    (concat atoms parent-atoms)))
 
 (defrecord Adapter [path repo]
   p/IAdapter
@@ -73,9 +96,27 @@
     (let [references (reference/load-all repo)]
       (into [] (apply concat (map reference-obj->atoms references)))))
 
+  (commit->atoms [this id]
+    (let [sha1 (second (str/split id #"/" 2))
+          oid (to-oid repo sha1)]
+      (commit-obj->atoms (commit/load repo oid))))
+
+  (commits->atoms [this]
+    (->> (reference/load-all repo)
+         (map :head)
+         (map #(collect-commits repo %))
+         (apply concat)
+         (map commit-obj->atoms)
+         (apply concat)
+         (set)))
+
   (transact! [this info mutations]
-    (let [base (when (:base info)
-                 (commit/load repo (to-oid repo (:base info))))
+    (let [base (if (:base info)
+                 (commit/load repo (to-oid repo (:base info)))
+                 (when (:target info)
+                   (some->> (reference/load repo (:target info))
+                            :head :sha1 (to-oid repo)
+                            (commit/load repo))))
           base-tree (if base
                       (commit/tree repo base)
                       (tree/make-empty repo))
@@ -89,26 +130,8 @@
 
 ;;;; Generate atoms for the entire repository at once
 
-(defn commit->atoms [commit]
-  (let [id (:sha1 commit)
-        props {:commit/sha1 (:sha1 commit)
-               :commit/author (:author commit)
-               :commit/committer (:committer commit)
-               :commit/message (:message commit)}
-        atoms (->> props
-                   (filter kv-value-set?)
-                   (map #(into [id] %)))]
-    (if-not (empty? (:parents commit))
-      (conj atoms (map #(vector id :commit/parent %) parents))
-      atoms)))
-
 (defn class->atoms [class]
   [])
-
-(defn collect-commits [repo commit]
-  (concat [commit]
-          (map #(collect-commits repo %)
-               (:parents commit))))
 
 (defn collect-classes [repo commit]
   (classes/load-all repo (commit/tree repo commit)))
@@ -126,5 +149,5 @@
     (into []
           (mapcat concat
                   (map reference-obj->atoms references)
-                  (map commit->atoms commits)
+                  (map commit-obj->atoms commits)
                   (map class->atoms classes)))))

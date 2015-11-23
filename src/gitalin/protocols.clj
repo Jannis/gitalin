@@ -10,6 +10,8 @@
   (disconnect [this])
   (references->atoms [this])
   (reference->atoms [this id])
+  (commits->atoms [this])
+  (commit->atoms [this id])
   (transact! [this info mutations]))
 
 (defprotocol IConnection

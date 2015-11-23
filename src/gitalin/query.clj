@@ -211,11 +211,8 @@
   (mapv #(resolve-var context %) vars))
 
 (defn matches-variable? [context element value]
-  (debug "matches-variable?" element value)
   (and (instance? Variable element)
        (let [var-value (resolve-var context element)]
-         (debug "  var-value >>" var-value)
-         (debug "  value     >>" value)
          (or (nil? var-value)
              (if (coll? var-value)
                (or (some #{value} var-value)
@@ -223,12 +220,10 @@
                (= var-value value))))))
 
 (defn matches-constant? [element value]
-  (debug "matches-constant?" element value)
   (and (instance? Constant element)
       (= (:value element) value)))
 
 (defn matches-element? [context element value]
-  (debug "matches-element?" element value)
   (or (matches-variable? context element value)
       (matches-constant? element value)))
 
@@ -262,6 +257,15 @@
   (reduce #(match-atom-against-pattern pattern context %1 %2)
           #{} atoms))
 
+(defn resolve-id [context id]
+  (let [resolved-id (or (when (instance? Variable id)
+                          (resolve-var context id))
+                        id)]
+    (cond
+      (instance? Variable resolved-id) resolved-id
+      (instance? Constant resolved-id) (:value resolved-id)
+      :else resolved-id)))
+
 (defn dispatch-on-property-base [context pattern]
   (let [property (second (:elements pattern))
         base (cond-> (:value property)
@@ -276,13 +280,27 @@
   [context pattern]
   (debug "resolve-pattern" pattern)
   (let [id (first (:elements pattern))
-        atoms (if (instance? Variable id)
+        resolved-id (resolve-id context id)
+        atoms (if (instance? Variable resolved-id)
                 (p/references->atoms (-> context :conn p/adapter))
                 (p/reference->atoms (-> context :conn p/adapter)
-                                    (:value id)))
-        matches (match-atoms-against-pattern context pattern atoms)
-        ; TODO: atoms (map #(into [(-> context :conn p/conn-id)]))
-        ]
+                                    resolved-id))
+        matches (match-atoms-against-pattern context pattern atoms)]
+    (debug "new matches >>" matches)
+    (update context :matches into matches)))
+
+(defmethod resolve-pattern :commit
+  [context pattern]
+  (debug "resolve-pattern" pattern)
+  (let [id (first (:elements pattern))
+        resolved-id (resolve-id context id)
+        _ (debug "  resolved-id >>" resolved-id)
+        atoms (if (instance? Variable resolved-id)
+                (p/commits->atoms (-> context :conn :adapter))
+                (p/commit->atoms (-> context :conn :adapter)
+                                 resolved-id))
+        _ (debug "  atoms >>" atoms)
+        matches (match-atoms-against-pattern context pattern atoms)]
     (debug "new matches >>" matches)
     (update context :matches into matches)))
 
