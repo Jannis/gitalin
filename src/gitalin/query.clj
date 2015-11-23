@@ -131,8 +131,10 @@
       (parse-seq parse-variable form)))
 
 (defn parse-in [form]
-  (or (:symbol (parse-variable form))
-      (map :symbol (parse-seq parse-variable form))))
+  (let [in (or (:symbol (parse-variable form))
+               (map :symbol (parse-seq parse-variable form)))]
+    (cond-> in
+      (not (sequential? in)) vector)))
 
 (defn parse-pattern-element [form]
   (or (parse-variable form)
@@ -185,15 +187,6 @@
                      (when (= var atom-var)
                        (atom index)))
                    atom-vars))))
-
-(defn resolve-vars-in-atom [vars atom]
-  (mapv #(resolve-var-in-atom % atom) vars))
-
-(defn resolve-vars-in-atoms [vars atoms]
-  (distinct
-   (if (sequential? vars)
-     (map #(resolve-vars-in-atom vars %) atoms)
-     (map #(resolve-var-in-atom vars %) atoms))))
 
 (defn resolve-var-in-atoms [atoms var]
   (let [val (into #{}
@@ -354,13 +347,7 @@
   (debug)
   (debug "q" q args)
   (let [q (parse-query q)
-        ins (if (:in q)
-              (zipmap (if (sequential? (:in q))
-                        (:in q)
-                        [(:in q)])
-                      args)
-              {})
-        _ (debug "ins" ins)
+        ins (zipmap (:in q) args)
         results (reduce resolve-clause
                         (Context. conn ins #{})
                         (:where q))]
