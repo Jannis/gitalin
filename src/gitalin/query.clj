@@ -13,6 +13,13 @@
             [gitalin.objects :as objects]
             [gitalin.protocols :as p]))
 
+(def debug? false)
+
+(defmacro debug
+  [& body]
+  `(when ~debug?
+    (println ~@body)))
+
 (comment 
   (defn commit->atoms [commit]
     (let [id (:sha1 commit)
@@ -211,11 +218,11 @@
   (mapv #(resolve-var context %) vars))
 
 (defn matches-variable? [context element value]
-  (println "matches-variable?" element value)
+  (debug "matches-variable?" element value)
   (and (instance? Variable element)
        (let [var-value (resolve-var context element)]
-         (println "  var-value >>" var-value)
-         (println "  value     >>" value)
+         (debug "  var-value >>" var-value)
+         (debug "  value     >>" value)
          (or (nil? var-value)
              (if (coll? var-value)
                (or (some #{value} var-value)
@@ -223,12 +230,12 @@
                (= var-value value))))))
 
 (defn matches-constant? [element value]
-  (println "matches-constant?" element value)
+  (debug "matches-constant?" element value)
   (and (instance? Constant element)
       (= (:value element) value)))
 
 (defn matches-element? [context element value]
-  (println "matches-element?" element value)
+  (debug "matches-element?" element value)
   (or (matches-variable? context element value)
       (matches-constant? element value)))
 
@@ -247,18 +254,18 @@
         field-matches))
 
 (defn match-atom-against-pattern [pattern context res atom]
-  (println "match-atom-against-pattern" pattern res atom)
+  (debug "match-atom-against-pattern" pattern res atom)
   (let [matches (match-fields-against-pattern context pattern atom)
         vars (collect-match-vars matches)]
-    (println "  matches >>" matches)
-    (println "  vars    >>" vars)
+    (debug "  matches >>" matches)
+    (debug "  vars    >>" vars)
     (if (not-any? nil? matches)
       (conj res (vary-meta atom assoc :vars vars))
       res)))
 
 (defn match-atoms-against-pattern [context pattern atoms]
   {:pre [(instance? Pattern pattern)]}
-  (println "match-atoms-against-pattern" pattern atoms)
+  (debug "match-atoms-against-pattern" pattern atoms)
   (reduce #(match-atom-against-pattern pattern context %1 %2)
           #{} atoms))
 
@@ -274,7 +281,7 @@
 
 (defmethod resolve-pattern :ref
   [context pattern]
-  (println "resolve-pattern" pattern)
+  (debug "resolve-pattern" pattern)
   (let [id (first (:elements pattern))
         atoms (if (instance? Variable id)
                 (p/references->atoms (-> context :conn p/adapter))
@@ -283,11 +290,11 @@
         matches (match-atoms-against-pattern context pattern atoms)
         ; TODO: atoms (map #(into [(-> context :conn p/conn-id)]))
         ]
-    (println "new matches >>" matches)
+    (debug "new matches >>" matches)
     (update context :matches into matches)))
 
 (defn resolve-pattern-clause [context clause]
-  (println "resolve-pattern-clause" clause)
+  (debug "resolve-pattern-clause" clause)
   (when (instance? Pattern clause)
     (resolve-pattern context clause)))
 
@@ -308,20 +315,20 @@
 
 (defmethod resolve-function 'some
   [context function]
-  (println "resolve-function 'some" function)
+  (debug "resolve-function 'some" function)
   (letfn [(apply-some [atom]
-            (println "apply-some" atom)
+            (debug "apply-some" atom)
             (let [args (resolve-args context atom (:args function))
                   res (apply some args)]
-              (println "  args >>" args)
-              (println "  res  >>" res)
+              (debug "  args >>" args)
+              (debug "  res  >>" res)
               res))]
-    (println "  matches >>" (:matches context))
-    (println "  result  >>")
+    (debug "  matches >>" (:matches context))
+    (debug "  result  >>")
     (update context :matches #(filter apply-some %))))
 
 (defn resolve-function-clause [context clause]
-  ;; (println "resolve-function-clause" clause)
+  (debug "resolve-function-clause" clause)
   (when (instance? Function clause)
     (resolve-function context clause)))
 
@@ -330,13 +337,13 @@
       (resolve-function-clause context clause)))
 
 (defn collect [var-or-vars context]
-  (println "collect" var-or-vars context)
+  (debug "collect" var-or-vars context)
   (let [res (if (sequential? var-or-vars)
               (into #{}
                     (apply map vector
                            (resolve-vars context var-or-vars)))
               (resolve-var context var-or-vars))]
-    (println "res" res)
+    (debug "res" res)
     (if (= (count res) 1)
       (first res)
       res)))
@@ -344,8 +351,8 @@
 (defn q [conn q args]
   {:pre [(satisfies? p/IConnection conn)
          (map? q)]}
-  (println)
-  (println "q" q args)
+  (debug)
+  (debug "q" q args)
   (let [q (parse-query q)
         ins (if (:in q)
               (zipmap (if (sequential? (:in q))
@@ -353,9 +360,9 @@
                         [(:in q)])
                       args)
               {})
-        _ (println "ins" ins)
+        _ (debug "ins" ins)
         results (reduce resolve-clause
                         (Context. conn ins #{})
                         (:where q))]
-    (println "results >>" results)
+    (debug "results >>" results)
     (collect (:find q) results)))
