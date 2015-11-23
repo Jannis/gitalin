@@ -20,13 +20,13 @@
            (is (= (p/property atom) (v 1)))
            (is (= (p/value atom) (v 2)))))))
 
-(defspec connection-is-constructed-correctly 10
+(defspec connection-is-constructed-correctly
   (prop/for-all [adapter setup/gen-store]
     (with-conn (c/connect adapter)
       (and (is (c/connection? conn))
            (is (satisfies? p/IConnection conn))))))
 
-(defspec empty-store-has-no-atoms 5
+(defspec empty-store-has-no-atoms
   (prop/for-all [adapter setup/gen-store]
     (with-conn (c/connect adapter)
       (is (= [] (a/repo->atoms (p/adapter conn)))))))
@@ -92,7 +92,7 @@
                                              :commit/message
                                              "Create object"]))))))))))
 
-(defspec querying-refs-works 5
+(defspec querying-refs-works
   (prop/for-all [v (gen/tuple setup/gen-store
                               gen/uuid
                               gen/keyword
