@@ -13,15 +13,21 @@
             [gitalin.objects :as objects]
             [gitalin.protocols :as p]))
 
+;;;; Debug helpers
+
 (defmacro debug
   [context & body]
   `(when (-> ~context :conn :debug)
      (println ~@body)
      (flush)))
 
-;;;; Queries
+(defmacro debug-pprint
+  [context & body]
+  `(when (-> ~context :conn :debug)
+     (pprint ~@body)
+     (flush)))
 
-;;; Query representation
+;;;; Query representation
 
 (defrecord Query [find where])
 
@@ -30,7 +36,7 @@
 (defrecord Pattern [elements])
 (defrecord Function [symbol args])
 
-;;; Query printing
+;;;; Query printing
 
 (defn variable-str [var]
   (when (instance? Variable var)
@@ -53,7 +59,7 @@
     (variable-str var-or-vars)
     (mapv var-str var-or-vars)))
 
-;;; Query parsing
+;;;; Query parsing
 
 (defn parse-variable [form]
   (when (and (symbol? form)
@@ -125,14 +131,18 @@
                :in (parse-in (:in q))
                :where (parse-where (:where q))}))
 
-;;; Query execution
+;;;; Execution context and variable lookup
 
 (defrecord Context [conn vars matches])
 
 (defn resolve-var-in-context [context var]
+  {:pre [(instance? Context context)
+         (instance? Variable var)]}
   ((:vars context) (:symbol var)))
 
 (defn resolve-var-in-atom [var atom]
+  {:pre [(instance? Variable var)
+         (satisfies? p/ICoatom atom)]}
   (let [atom-vars (:vars (meta atom))]
     (first
      (keep-indexed (fn [index atom-var]
@@ -141,30 +151,29 @@
                    atom-vars))))
 
 (defn resolve-var-in-atoms [context atoms var]
-  (debug context "    RESOLVE IN ATOMS >>" atoms var)
-  (let [val (into []
-                  (comp (map #(resolve-var-in-atom var %))
-                        (keep identity))
-                  atoms)
-        res (if (empty? val)
-              nil
-              val)]
-    (debug context "    RESOLVE IN ATOMS <<" res)
+  {:pre [(instance? Context context)
+         (every? #(satisfies? p/ICoatom %) atoms)
+         (instance? Variable var)]}
+  (let [vals (into []
+                   (comp (map #(resolve-var-in-atom var %))
+                         (remove nil?))
+                   atoms)
+        res (if (empty? vals) nil vals)]
     res))
 
 (defn resolve-var [context var]
   {:pre [(instance? Context context)
          (instance? Variable var)]}
-  (debug context "  RESOLVE" (var-str var))
   (let [res (or (resolve-var-in-context context var)
                 (resolve-var-in-atoms context (:matches context) var))]
-    (debug context "  RESOLVE <<" res)
     res))
 
 (defn resolve-vars [context vars]
   {:pre [(instance? Context context)
          (every? #(instance? Variable %) vars)]}
   (mapv #(resolve-var context %) vars))
+
+;;;; Query execution
 
 (defn matches-variable? [context element value]
   (and (instance? Variable element)
@@ -183,13 +192,26 @@
   (or (matches-variable? context element value)
       (matches-constant? element value)))
 
+;; (defn match-fields-against-pattern [context pattern atom]
+;;   (doall
+;;    (map-indexed (fn [index element]
+;;                   (if (matches-element? context element (atom index))
+;;                     element
+;;                     nil))
+;;                 (:elements pattern))))
+
 (defn match-fields-against-pattern [context pattern atom]
-  (doall
-   (map-indexed (fn [index element]
-                  (if (matches-element? context element (atom index))
-                    element
-                    nil))
-                (:elements pattern))))
+  {:pre [(instance? Context context)
+         (instance? Pattern pattern)
+         (satisfies? p/ICoatom atom)]}
+  (let [elements (:elements pattern)]
+    (if (matches-element? context (elements 0) (p/id atom))
+      (map-indexed (fn [index element]
+                     (if (matches-element? context element (atom index))
+                       element
+                       nil))
+                   elements)
+      (take (count elements) (constantly nil)))))
 
 (defn collect-match-vars [field-matches]
   (mapv (fn [element]
@@ -199,22 +221,23 @@
         field-matches))
 
 (defn match-atom-against-pattern [pattern context res atom]
-  (debug context "  MATCH >>" atom)
+  {:pre [(instance? Pattern pattern)
+         (instance? Context context)
+         (map? res)
+         (satisfies? p/ICoatom atom)]}
   (let [matches (match-fields-against-pattern context pattern atom)
-        _ (debug context "    MATCHES >>" matches)
         vars (collect-match-vars matches)]
     (if (not-any? nil? matches)
-      (do
-        (debug context "  MATCH <<" atom)
-        (conj res (vary-meta atom assoc :vars vars)))
-      (do
-        (debug context "  MATCH << nil")
-        res))))
+      (update res :matches conj (vary-meta atom assoc :vars vars))
+      (update res :rejects conj atom))))
 
 (defn match-atoms-against-pattern [context pattern atoms]
-  {:pre [(instance? Pattern pattern)]}
+  {:pre [(instance? Context context)
+         (instance? Pattern pattern)
+         (every? #(satisfies? p/ICoatom %) atoms)]}
   (reduce #(match-atom-against-pattern pattern context %1 %2)
-          [] atoms))
+          {:matches [] :rejects []}
+          atoms))
 
 (defn resolve-id [context id]
   (let [resolved-id (or (when (instance? Variable id)
@@ -233,120 +256,84 @@
       (keyword base)
       base)))
 
-(defmulti resolve-pattern dispatch-on-property-base)
+(defn consolidate-matches [old new rejects]
+  (->> (into old new)
+       (remove #(some #{%} rejects))))
 
-(defmethod resolve-pattern :ref
-  [context pattern]
-  (debug context "PATTERN >>" (pattern-str pattern))
-  (let [id (first (:elements pattern))
-        resolved-id (resolve-id context id)
-        adapter (p/adapter (:conn context))
-        atoms (if (instance? Variable resolved-id)
-                (p/references->atoms adapter)
-                (if (coll? resolved-id)
-                  (->> resolved-id
-                       (map #(p/reference->atoms adapter %))
-                       (apply concat))
-                  (p/reference->atoms adapter resolved-id)))
-        matches (match-atoms-against-pattern context pattern atoms)]
-    (debug context "PATTERN <<" matches)
-    (update context :matches into matches)))
-
-(defmethod resolve-pattern :commit
-  [context pattern]
-  (debug context "PATTERN >>" (pattern-str pattern))
-  (let [id (first (:elements pattern))
-        resolved-id (resolve-id context id)
-        adapter (p/adapter (:conn context))
-        atoms (if (instance? Variable resolved-id)
-                (p/commits->atoms adapter)
-                (if (coll? resolved-id)
-                  (->> resolved-id
-                       (map #(p/commit->atoms adapter %))
-                       (apply concat))
-                  (p/commit->atoms adapter resolved-id)))
-        matches (match-atoms-against-pattern context pattern atoms)]
-    (debug context "PATTERN <<" matches)
-    (update context :matches into matches)))
-
-(defmethod resolve-pattern :class
-  [context pattern]
-  (debug context "PATTERN >>" (pattern-str pattern))
-  (let [id (first (:elements pattern))
-        resolved-id (resolve-id context id)
-        adapter (p/adapter (:conn context))
-        atoms (if (instance? Variable resolved-id)
-                (p/classes->atoms adapter)
-                (if (coll? resolved-id)
-                  (->> resolved-id
-                       (map #(p/class->atoms adapter %))
-                       (apply concat))
-                  (p/class->atoms adapter resolved-id)))
-        matches (match-atoms-against-pattern context pattern atoms)]
-    (debug context "PATTERN <<" matches)
-    (update context :matches into matches)))
-
-(defn resolve-object-pattern
-  [context pattern]
+(defn process-pattern* [context pattern one->atoms many->atoms]
   (debug context "PATTERN" (pattern-str pattern))
-  (let [id (first (:elements pattern))
-        resolved-id (resolve-id context id)
+  (debug context "-------")
+  (let [id-or-ids (resolve-id context (first (:elements pattern)))
         adapter (p/adapter (:conn context))
-        atoms (if (instance? Variable resolved-id)
-                (p/objects->atoms adapter)
-                (if (coll? resolved-id)
-                  (->> resolved-id
-                       (map #(p/object->atoms adapter %))
+        atoms (if (instance? Variable id-or-ids)
+                (many->atoms adapter)
+                (if (coll? id-or-ids)
+                  (->> id-or-ids
+                       (map #(one->atoms adapter %))
                        (apply concat))
-                  (p/object->atoms adapter resolved-id)))
-        _ (debug context "  ATOMS" atoms)
-        matches (match-atoms-against-pattern context pattern atoms)]
-    (debug context "PATTERN <<" matches)
-    (update context :matches into matches)))
+                  (one->atoms adapter id-or-ids)))
+        res (match-atoms-against-pattern context pattern atoms)
+        matches (:matches res)
+        rejects (:rejects res)
+        new-context (update context :matches
+                            consolidate-matches
+                            matches rejects)]
+    (debug context "BEFORE")
+    (debug-pprint context (:matches context))
+    (debug context "MATCHES")
+    (debug-pprint context matches)
+    (debug context "REJECTS")
+    (debug-pprint context rejects)
+    (debug context "AFTER")
+    (debug-pprint new-context (:matches new-context))
+    new-context))
 
-(defmethod resolve-pattern :object
+(defmulti process-pattern dispatch-on-property-base)
+
+(defmethod process-pattern :ref
   [context pattern]
-  (resolve-object-pattern context pattern))
+  (process-pattern* context
+                    pattern
+                    p/reference->atoms
+                    p/references->atoms))
 
-(defmethod resolve-pattern :default
+(defmethod process-pattern :commit
   [context pattern]
-  (resolve-object-pattern context pattern))
+  (process-pattern* context
+                    pattern
+                    p/commit->atoms
+                    p/commits->atoms))
 
-(defn resolve-pattern-clause [context clause]
+(defmethod process-pattern :class
+  [context pattern]
+  (process-pattern* context
+                    pattern
+                    p/class->atoms
+                    p/classes->atoms))
+
+(defn process-object-pattern
+  [context pattern]
+  (process-pattern* context
+                    pattern
+                    p/object->atoms
+                    p/objects->atoms))
+
+(defmethod process-pattern :object
+  [context pattern]
+  (process-object-pattern context pattern))
+
+(defmethod process-pattern :default
+  [context pattern]
+  (process-object-pattern context pattern))
+
+(defn process-pattern-clause [context clause]
   (when (instance? Pattern clause)
-    (resolve-pattern context clause)))
+    (process-pattern context clause)))
 
-(defn dispatch-on-function-symbol [context function]
-  (:symbol function))
+(defn process-clause [context clause]
+  (or (process-pattern-clause context clause)))
 
-(defn resolve-arg [context atom arg]
-  (cond
-    (instance? Variable arg) (resolve-var-in-atom arg atom)
-    (set? arg) (into #{} (map #(resolve-arg context atom %)) arg)
-    (instance? Constant arg) (:value arg)
-    :else arg))
-
-(defn resolve-args [context atom args]
-  (map #(resolve-arg context atom %) args))
-
-(defmulti resolve-function dispatch-on-function-symbol)
-
-(defmethod resolve-function 'some
-  [context function]
-  (debug context "FUNCTION" function)
-  (letfn [(apply-some [atom]
-            (let [args (resolve-args context atom (:args function))
-                  res (apply some args)]
-              res))]
-    (update context :matches #(filter apply-some %))))
-
-(defn resolve-function-clause [context clause]
-  (when (instance? Function clause)
-    (resolve-function context clause)))
-
-(defn resolve-clause [context clause]
-  (or (resolve-pattern-clause context clause)
-      (resolve-function-clause context clause)))
+;;;; Collecting query results
 
 (defn collect [var-or-vars context]
   (debug context "COLLECT" (var-str var-or-vars))
@@ -366,24 +353,7 @@
     (debug context "COLLECT <<" res)
     res))
 
-;; (defn collect [var-or-vars context]
-;;   (debug context "collect" var-or-vars context)
-;;   (into #{}
-;;         (comp
-;;          (map (fn [atom]
-;;                 (if (sequential? var-or-vars)
-;;                   (mapv #(resolve-var-in-atom % atom) var-or-vars)
-;;                   (resolve-var-in-atom var-or-vars atom))))
-;;          (remove nil?))
-;;         (:matches context)))
-
-  ;; (let [res (if (sequential? var-or-vars)
-  ;;             (into #{}
-  ;;                   (apply map vector
-  ;;                          (resolve-vars context var-or-vars)))
-  ;;             (resolve-var context var-or-vars))]
-  ;;   (debug context "res" res)
-  ;;   res))
+;;;; Entry point
 
 (defn q [conn q args]
   {:pre [(satisfies? p/IConnection conn)
@@ -392,7 +362,7 @@
   (debug {:conn conn} "q" q args)
   (let [q (parse-query q)
         ins (zipmap (:in q) args)
-        results (reduce resolve-clause
+        results (reduce process-clause
                         (Context. conn ins [])
                         (:where q))]
     (debug results ">>" results)
