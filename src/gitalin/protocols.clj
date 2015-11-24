@@ -12,6 +12,10 @@
   (reference->atoms [this id])
   (commits->atoms [this])
   (commit->atoms [this id])
+  (classes->atoms [this])
+  (class->atoms [this id])
+  (objects->atoms [this])
+  (object->atoms [this id])
   (transact! [this info mutations]))
 
 (defprotocol IConnection

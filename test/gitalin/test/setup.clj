@@ -9,6 +9,14 @@
             [gitalin.adapter :as a]
             [gitalin.core :as c]))
 
+;;;; Misc helpers
+
+(defmacro dofor
+  [bindings & body]
+  `(doall
+    (for ~bindings
+      ~@body)))
+
 ;;;; Create temporary directories
 
 (def gen-temp-dir
@@ -50,16 +58,15 @@
   [conn & body]
   `(let [~(symbol "conn") ~conn]
      (try
-       ~@body
-       (delete-store-from-conn ~(symbol "conn"))
-       (catch Exception e#
-         (delete-store-from-conn ~(symbol "conn"))
-         (throw e#)))))
+       (do
+         ~@body)
+       (finally
+         (delete-store-from-conn ~(symbol "conn"))))))
 
 ;;;; Generate transactions
 
 (def gen-transactions
-  (gen/vector
+  (gen/vector-distinct
    (gen/hash-map
     :info (gen/hash-map
            :target (gen/return "HEAD")
@@ -70,7 +77,7 @@
                        :name gen/string-alphanumeric
                        :email gen/string-alphanumeric)
            :message gen/string)
-    :data (gen/vector
+    :data (gen/vector-distinct
            (gen/fmap
             vec
             (gen/tuple (gen/return :object/add)

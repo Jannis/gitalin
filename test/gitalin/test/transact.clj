@@ -7,6 +7,7 @@
             [clojure.test.check.properties :as prop]
             [gitalin.test.setup :as setup :refer [with-conn]]
             [gitalin.core :as c]
+            [gitalin.query :as q]
             [gitalin.protocols :as p]
             [gitalin.adapter :as a]))
 
@@ -187,84 +188,125 @@
 ;;                                  [?commit :commit/message ?msg]]})]
 ;;           (is (= "Create another object" res)))))))
 
-(defspec as-many-commits-created-as-transactions 25
+(defspec as-many-commits-created-as-transactions 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 transactions setup/gen-transactions]
     (with-conn (c/connect store)
-      (doseq [{:keys [info data]} txs]
+      (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
-      (= (count txs)
-         (count (c/q conn '{:find ?c :where [[?c :commit/sha1 ?s]]}))))))
+      (let [res (c/q conn '{:find ?c
+                            :where [[?c :commit/sha1 ?s]]})]
+        (is (= (count transactions)
+               (count res)))))))
 
-(defspec each-commit-correspond-to-one-transaction 25
+(defspec each-commit-correspond-to-one-transaction 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 transactions setup/gen-transactions]
     (with-conn (c/connect store)
-      (doseq [{:keys [info data]} txs]
+      (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
-      (= (into #{} (map #(:message (:info %)) txs))
-         (c/q conn '{:find ?msg
-                     :where [[?c :commit/message ?msg]]})))))
+      (is (= (into #{} (map #(:message (:info %)) transactions))
+             (c/q conn '{:find ?msg
+                         :where [[?c :commit/message ?msg]]}))))))
 
-(defspec transactions-update-HEAD 25
+(defspec transactions-update-HEAD 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
     (with-conn (c/connect store)
-      (doseq [{:keys [info data]} txs]
-        (c/transact! conn info data)
-        (= (:message info)
-           (c/q conn '{:find ?msg
-                       :where [[?ref :ref/name "HEAD"]
+      (every? true?
+       (for [{:keys [info data]} txs]
+         (do
+           (c/transact! conn info data)
+           (is (= #{(:message info)}
+                  (c/q conn '{:find ?msg
+                              :where
+                              [[?ref :ref/name "HEAD"]
                                [?ref :ref/commit ?commit]
-                               [?commit :commit/message ?msg]]}))))))
+                               [?commit :commit/message ?msg]]})))))))))
 
-(defspec transactions-update-master 25
+(defspec transactions-update-master 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
     (with-conn (c/connect store)
-      (doseq [{:keys [info data]} txs]
-        (c/transact! conn info data)
-        (= (:message info)
-           (c/q conn '{:find ?msg
-                       :where [[?ref :ref/name "refs:heads:master"]
+      (every? true?
+       (for [{:keys [info data]} txs]
+         (do
+           (c/transact! conn info data)
+           (is (= #{(:message info)}
+                  (c/q conn '{:find ?msg
+                              :where
+                              [[?ref :ref/name "refs:heads:master"]
                                [?ref :ref/commit ?commit]
-                               [?commit :commit/message ?msg]]}))))))
+                               [?commit :commit/message ?msg]]})))))))))
 
-(defspec HEAD-and-master-point-to-the-same-commit 25
+(defspec HEAD-and-master-point-to-the-same-commit 5
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
     (with-conn (c/connect store)
-      (doseq [{:keys [info data]} txs]
-        (c/transact! conn info data)
-        (= (c/q conn '{:find ?h
-                       :where [[?ref :ref/name "HEAD"]
+      (every? true?
+       (for [{:keys [info data]} txs]
+         (do
+           (c/transact! conn info data)
+           (is (= (c/q conn '{:find ?h
+                              :where
+                              [[?ref :ref/name "HEAD"]
                                [?ref :ref/commit ?h]]})
-           (c/q conn '{:find ?m
-                       :where [[?ref :ref/name "refs:heads:master"]
-                               [?ref :ref/commit ?m]]}))))))
-
-(defn var-from-index [i]
-  (symbol (str "?v" i)))
+                  (c/q conn '{:find ?m
+                              :where
+                              [[?ref :ref/name "refs:heads:master"]
+                               [?ref :ref/commit ?m]]})))))))))
 
 (defn object-add? [mutation]
   (and (sequential? mutation)
        (= :object/add (first mutation))))
 
-(defspec adding-objects-actually-creates-these-objects 25
+(defspec adding-objects-creates-classes 5
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
-    (with-conn (c/connect store)
+    (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
-        (c/transact! conn info data)
-        (let [additions (filter object-add? data)]
-          (doseq [addition additions]
-            (let [[_ class uuid prop val] addition]
-              (= [class uuid val]
-                 (c/q conn `{:find [?c ?u ?v]
-                             :where [[?ref :ref/name "HEAD"]
-                                     [?ref :ref/commit ?commit]
-                                     [?commit :commit/class ?class]
-                                     [?class :class/object ?o]
-                                     [?o :object/class ?c]
-                                     [?o :object/uuid ?u]
-                                     [?o ~prop ?v]]})))))))))
+        (c/transact! conn info data))
+      (let [adds (->> txs
+                      (map :data)
+                      (map #(filter object-add? %))
+                      (apply concat))
+            class-names (map second adds)]
+         (is (= (set class-names)
+                (c/q conn '{:find ?name
+                            :where
+                            [[?ref :ref/name "HEAD"]
+                             [?ref :ref/commit ?c]
+                             [?c :commit/class ?class]
+                             [?class :class/name ?name]]})))))))
+
+(defn var-from-index [i]
+  (symbol (str "?v" i)))
+
+(defspec adding-objects-actually-creates-these-objects 5
+  (prop/for-all [store setup/gen-store
+                 txs setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug true)
+      (doseq [{:keys [info data]} txs]
+        (c/transact! conn info data))
+      (let [additions (->> txs
+                           (map :data)
+                           (map #(filter object-add? %))
+                           (apply concat))
+            data (map (fn [[_ class uuid prop val]]
+                        [class uuid prop val])
+                      additions)]
+        (is (= (set (map (fn [[class uuid _ val]]
+                           [class uuid val])
+                         data))
+               (into #{}
+                (apply concat
+                 (for [d data]
+                   (let [[class uuid prop val] d]
+                     (c/q conn `{:find [?c ?u ?v]
+                                 :where [[?ref :ref/name "HEAD"]
+                                         [?ref :ref/commit ?commit]
+                                         [?commit :commit/class ?class]
+                                         [?class :class/object ?o]
+                                         [?o :object/class ?c]
+                                         [?o :object/uuid ?u]
+                                         [?o ~prop ?v]]})))))))))))

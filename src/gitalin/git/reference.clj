@@ -2,7 +2,9 @@
   (:import [org.eclipse.jgit.lib Constants RefUpdate RefUpdate$Result])
   (:refer-clojure :exclude [load])
   (:require [clojure.string :as str]
-            [gitalin.git.coerce :refer [to-ref-name to-oid]]
+            [gitalin.git.coerce :refer [to-git-ref-name
+                                        to-ref-name
+                                        to-oid]]
             [gitalin.git.commit :as commit]
             [gitalin.git.repo :refer [object-type rev-walk]]
             [gitalin.git.tag :as tag]))
@@ -27,7 +29,8 @@
       (->Reference name (if tag? "tag" "branch") tag head))))
 
 (defn load [repo name]
-  (some->> (.getRef (.getRepository repo) name)
+  (some->> (to-git-ref-name name)
+           (.getRef (.getRepository repo))
            (to-reference repo)))
 
 (defn load-all [repo]

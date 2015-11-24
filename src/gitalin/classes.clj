@@ -16,13 +16,12 @@
 (defn load-all [repo tree]
   (some->> (:entries tree)
            (filter #(= :tree (:type %)))
-           (map (partial load-from-entry repo))
-           (map #(-> [(:name %) %]))
-           (into {})))
+           (map (partial load-from-entry repo))))
 
 (defn load [repo tree name]
-  (some-> (load-all repo tree)
-          (get name)))
+  (some->> (load-all repo tree)
+           (filter #(= name (:name %)))
+           (first)))
 
 (defn tree [repo tree class]
   (some->> (:entries tree)
