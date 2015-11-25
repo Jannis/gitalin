@@ -21,12 +21,18 @@
 
 ;;;; Default adapter
 
-(defmulti mutate-step (fn [_ _ mutation] (first mutation)))
+;;; Entities
 
-(comment
-  ;; How about something like this?
-  (defmethod mutate-step :commit/add)
-  (defmethod mutate-step :ref/update))
+(defrecord Entity [id properties]
+  p/IEntity
+  (id [this]
+    id)
+  (properties [this]
+    properties))
+
+;;; Transactions
+
+(defmulti mutate-step (fn [_ _ mutation] (first mutation)))
 
 (defmethod mutate-step :object/add
   [repo base [_ class uuid property value]]
@@ -52,6 +58,8 @@
     (when (reference/update! repo target commit)
       (reference/load repo (:target info)))))
 
+;;; Queries
+
 (defn obj->id [obj]
   (cond
     (instance? Reference obj)
@@ -75,10 +83,12 @@
   (let [segments (str/split id #"/")]
     (case (first segments)
       "reference"
-      (throw "Not Implemented Yet")
+      (let [[_ name] segments]
+        (reference/load repo name))
 
       "commit"
-      (throw "Not Implemented Yet")
+      (let [[_ sha1] segments]
+        (commit/load repo (to-oid repo sha1)))
 
       "class"
       (let [[_ sha1 name] segments
@@ -98,14 +108,14 @@
       :else
       nil)))
 
-(defn reference-obj->atoms [ref]
-  (let [id (obj->id ref)
-        props {:ref/name (:name ref)
-               :ref/commit (obj->id (:head ref))
-               :ref/type (:type ref)}]
-    (->> props
-         (filter kv-value-set?)
-         (map #(into [id] %)))))
+(defn finalize-props [props]
+  (into [] (filter #(not (nil? (second %))) props)))
+
+(defn reference->entity [repo ref]
+  (let [props [[:ref/name (:name ref)]
+               [:ref/commit (some->> ref :head obj->id)]
+               [:ref/type (:type ref)]]]
+    (Entity. (obj->id ref) (finalize-props props))))
 
 (defn collect-commits [repo commit]
   (flatten
@@ -117,57 +127,50 @@
                       (collect-commits repo)))
                (:parents commit)))))
 
-(defn commit-obj->atoms [repo commit']
-  (let [id (obj->id commit')
-        props {:commit/sha1 (:sha1 commit')
-               :commit/author (:author commit')
-               :commit/committer (:committer commit')
-               :commit/message (:message commit')}
-        atoms (->> props
-                   (filter kv-value-set?)
-                   (map #(into [id] %)))
-        tree (commit/tree repo commit')
-        parent-atoms (some->> (:parents commit')
-                              (map #(to-oid repo %))
-                              (map #(commit/load repo %))
-                              (map obj->id)
-                              (mapv #(vector id :commit/parent %)))
-        class-atoms (some->> (classes/load-all repo tree)
-                             (map #(vary-meta % assoc :commit commit'))
-                             (map obj->id)
-                             (mapv #(vector id :commit/class %)))]
-    (concat atoms parent-atoms class-atoms)))
+(defn commit->entity [repo com]
+  (let [tree (commit/tree repo com)
+        parents (some->> (:parents com)
+                         (map #(to-oid repo %))
+                         (map #(commit/load repo %))
+                         (mapv obj->id))
+        classes (some->> (classes/load-all repo tree)
+                         (map #(vary-meta % assoc :commit com))
+                         (map obj->id))
+        props [[:commit/sha1 (:sha1 com)]
+               [:commit/author (:author com)]
+               [:commit/committer (:committer com)]
+               [:commit/message (:message com)]]]
+    (Entity. (obj->id com)
+             (finalize-props
+              (concat props
+                      (mapv #(vector :commit/parent %) parents)
+                      (mapv #(vector :commit/class %) classes))))))
 
-(defn class-obj->atoms [repo class]
-  (let [commit' (:commit (meta class))
-        tree (commit/tree repo commit')
-        id (obj->id class)
-        props {:class/name (:name class)
-               :class/commit (obj->id commit')}
-        atoms (->> props
-                   (filter kv-value-set?)
-                   (map #(into [id] %)))
-        object-atoms (some->> (:objects class)
-                              (map :uuid)
-                              (map #(objects/load repo tree class %))
-                              (map #(vary-meta % assoc :commit commit'))
-                              (map obj->id)
-                              (mapv #(vector id :class/object %)))]
-    (concat atoms object-atoms)))
+(defn class->entity [repo class]
+  (let [com (:commit (meta class))
+        tree (commit/tree repo com)
+        objects (some->> (:objects class)
+                         (map :uuid)
+                         (map #(objects/load repo tree class %))
+                         (map #(vary-meta % assoc :commit com))
+                         (map obj->id))
+        props [[:class/name (:name class)]
+               [:class/commit (obj->id com)]]]
+    (Entity. (obj->id class)
+             (finalize-props
+              (concat props
+                      (mapv #(vector :class/object %) objects))))))
 
-(defn object-obj->atoms [object]
-  (let [commit (:commit (meta object))
-        id (obj->id object)
-        props {:object/uuid (:uuid object)
-               :object/class (:class object)
-               :object/commit (obj->id commit)}
-        atoms (->> props
-                   (filter kv-value-set?)
-                   (map #(into [id] %)))
-        property-atoms (some->> (:properties object)
-                                (map (fn [[prop val]]
-                                       (vector id prop val))))]
-    (concat atoms property-atoms)))
+(defn object->entity [repo object]
+  (let [com (:commit (meta object))
+        props [[:object/uuid (:uuid object)]
+               [:object/class (:class object)]
+               [:object/commit (obj->id com)]]]
+    (Entity. (obj->id object)
+             (finalize-props
+              (concat props
+                      (mapv (fn [[prop val]] [prop val])
+                            (:properties object)))))))
 
 (defn collect-classes [repo commit']
   (let [tree (commit/tree commit')]
@@ -183,6 +186,9 @@
            (-> object
                (vary-meta assoc :commit commit)))
          (objects/load-all repo tree class))))
+
+(defn load-all-references [repo]
+  (reference/load-all repo))
 
 (defn load-all-commits [repo]
   (->> (reference/load-all repo)
@@ -211,45 +217,41 @@
   (disconnect [this]
     (dissoc this :repo))
 
-  (reference->atoms [this id]
-    (let [name (second (str/split id #"/" 2))]
-      (reference-obj->atoms (reference/load repo name))))
+  (references [this]
+    (->> (load-all-references repo)
+         (map #(reference->entity repo %))
+         (set)))
 
-  (references->atoms [this]
-    (let [references (reference/load-all repo)]
-      (into [] (apply concat (map reference-obj->atoms references)))))
+  (reference [this id]
+    (->> (id->obj repo id)
+         (reference->entity repo)))
 
-  (commit->atoms [this id]
-    (let [sha1 (second (str/split id #"/" 2))
-          oid (to-oid repo sha1)]
-      (commit-obj->atoms repo (commit/load repo oid))))
+  (commit [this id]
+    (->> (id->obj repo id)
+         (commit->entity repo)))
 
-  (commits->atoms [this]
+  (commits [this]
     (->> (load-all-commits repo)
-         (map #(commit-obj->atoms repo %))
-         (apply concat)
+         (map #(commit->entity repo %))
          (set)))
 
-  (classes->atoms [this]
+  (classes [this]
     (->> (load-all-classes repo)
-         (map #(class-obj->atoms repo %))
-         (apply concat)
+         (map #(class->entity repo %))
          (set)))
 
-  (class->atoms [this id]
+  (class [this id]
     (->> (id->obj repo id)
-         (class-obj->atoms repo)))
+         (class->entity repo)))
 
-  (objects->atoms [this]
+  (objects [this]
     (->> (load-all-objects repo)
-         (map object-obj->atoms)
-         (apply concat)
+         (map #(object->entity repo %))
          (set)))
 
-  (object->atoms [this id]
-    (println "object->atoms" id)
+  (object [this id]
     (->> (id->obj repo id)
-         (object-obj->atoms)))
+         (object->entity repo)))
 
   (transact! [this info mutations]
     (let [base (if (:base info)
@@ -268,27 +270,3 @@
 
 (defn adapter [path]
   (Adapter. path nil))
-
-;;;; Generate atoms for the entire repository at once
-
-(defn class->atoms [class]
-  [])
-
-(defn collect-classes [repo commit]
-  (classes/load-all repo (commit/tree repo commit)))
-
-(defn repo->atoms [adapter]
-  (let [repo (:repo adapter)
-        references (reference/load-all repo)
-        commits (->> references
-                     (map :head)
-                     (map #(collect-commits repo %))
-                     (apply concat))
-        classes (->> commits
-                     (map #(collect-classes repo %))
-                     (apply concat))]
-    (into []
-          (mapcat concat
-                  (map reference-obj->atoms references)
-                  (map #(commit-obj->atoms repo %) commits)
-                  (map class->atoms classes)))))

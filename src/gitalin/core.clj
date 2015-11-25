@@ -1,20 +1,8 @@
 (ns gitalin.core
-  (:import [clojure.lang PersistentVector])
   (:require [gitalin.git.reference :as reference]
             [gitalin.git.repo :as git-repo]
             [gitalin.protocols :as p]
             [gitalin.query :as query]))
-
-;;;; Make vectors atoms
-
-(extend-type PersistentVector
-  p/ICoatom
-  (id [this]
-    (this 0))
-  (property [this]
-    (this 1))
-  (value [this]
-    (this 2)))
 
 ;;;; Connections
 

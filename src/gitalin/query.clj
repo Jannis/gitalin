@@ -36,6 +36,12 @@
 (defrecord Pattern [elements])
 (defrecord Function [symbol args])
 
+(defn variable? [x]
+  (instance? Variable x))
+
+(defn constant? [x]
+  (instance? Constant x))
+
 ;;;; Query printing
 
 (defn variable-str [var]
@@ -133,120 +139,19 @@
 
 ;;;; Execution context and variable lookup
 
-(defrecord Context [conn vars matches])
+(defrecord Context [conn bindings])
 
-(defn resolve-var-in-context [context var]
+(defn var-bound? [context var]
   {:pre [(instance? Context context)
-         (instance? Variable var)]}
-  ((:vars context) (:symbol var)))
+         (variable? var)]}
+  (contains? (:bindings context) var))
 
-(defn resolve-var-in-atom [var atom]
-  {:pre [(instance? Variable var)
-         (satisfies? p/ICoatom atom)]}
-  (let [atom-vars (:vars (meta atom))]
-    (first
-     (keep-indexed (fn [index atom-var]
-                     (when (= var atom-var)
-                       (atom index)))
-                   atom-vars))))
-
-(defn resolve-var-in-atoms [context atoms var]
+(defn get-value [context var]
   {:pre [(instance? Context context)
-         (every? #(satisfies? p/ICoatom %) atoms)
-         (instance? Variable var)]}
-  (let [vals (into []
-                   (comp (map #(resolve-var-in-atom var %))
-                         (remove nil?))
-                   atoms)
-        res (if (empty? vals) nil vals)]
-    res))
-
-(defn resolve-var [context var]
-  {:pre [(instance? Context context)
-         (instance? Variable var)]}
-  (let [res (or (resolve-var-in-context context var)
-                (resolve-var-in-atoms context (:matches context) var))]
-    res))
-
-(defn resolve-vars [context vars]
-  {:pre [(instance? Context context)
-         (every? #(instance? Variable %) vars)]}
-  (mapv #(resolve-var context %) vars))
+         (variable? var)]}
+  ((:bindings context) var))
 
 ;;;; Query execution
-
-(defn matches-variable? [context element value]
-  (and (instance? Variable element)
-       (let [var-value (resolve-var context element)]
-         (or (nil? var-value)
-             (if (coll? var-value)
-               (or (some #{value} var-value)
-                   (= value var-value))
-               (= var-value value))))))
-
-(defn matches-constant? [element value]
-  (and (instance? Constant element)
-      (= (:value element) value)))
-
-(defn matches-element? [context element value]
-  (or (matches-variable? context element value)
-      (matches-constant? element value)))
-
-;; (defn match-fields-against-pattern [context pattern atom]
-;;   (doall
-;;    (map-indexed (fn [index element]
-;;                   (if (matches-element? context element (atom index))
-;;                     element
-;;                     nil))
-;;                 (:elements pattern))))
-
-(defn match-fields-against-pattern [context pattern atom]
-  {:pre [(instance? Context context)
-         (instance? Pattern pattern)
-         (satisfies? p/ICoatom atom)]}
-  (let [elements (:elements pattern)]
-    (if (matches-element? context (elements 0) (p/id atom))
-      (map-indexed (fn [index element]
-                     (if (matches-element? context element (atom index))
-                       element
-                       nil))
-                   elements)
-      (take (count elements) (constantly nil)))))
-
-(defn collect-match-vars [field-matches]
-  (mapv (fn [element]
-          (if (instance? Variable element)
-            element
-            nil))
-        field-matches))
-
-(defn match-atom-against-pattern [pattern context res atom]
-  {:pre [(instance? Pattern pattern)
-         (instance? Context context)
-         (map? res)
-         (satisfies? p/ICoatom atom)]}
-  (let [matches (match-fields-against-pattern context pattern atom)
-        vars (collect-match-vars matches)]
-    (if (not-any? nil? matches)
-      (update res :matches conj (vary-meta atom assoc :vars vars))
-      (update res :rejects conj atom))))
-
-(defn match-atoms-against-pattern [context pattern atoms]
-  {:pre [(instance? Context context)
-         (instance? Pattern pattern)
-         (every? #(satisfies? p/ICoatom %) atoms)]}
-  (reduce #(match-atom-against-pattern pattern context %1 %2)
-          {:matches [] :rejects []}
-          atoms))
-
-(defn resolve-id [context id]
-  (let [resolved-id (or (when (instance? Variable id)
-                          (resolve-var context id))
-                        id)]
-    (cond
-      (instance? Variable resolved-id) resolved-id
-      (instance? Constant resolved-id) (:value resolved-id)
-      :else resolved-id)))
 
 (defn dispatch-on-property-base [context pattern]
   (let [property (second (:elements pattern))
@@ -256,67 +161,105 @@
       (keyword base)
       base)))
 
-(defn consolidate-matches [old new rejects]
-  (->> (into old new)
-       (remove #(some #{%} rejects))))
+(defn has-property? [entity property]
+  {:pre [(satisfies? p/IEntity entity)
+         (constant? property)]}
+  (let [props (p/properties entity)]
+    (not (empty? (filter #(= (:value property) (first %)) props)))))
 
-(defn process-pattern* [context pattern one->atoms many->atoms]
+(defmulti gather-property-value (fn [context prop] (first prop)))
+
+(defmethod gather-property-value :default
+  [context prop]
+  (second prop))
+
+(defn gather-entity-values [context entity property]
+  {:pre [(instance? Context context)
+         (satisfies? p/IEntity entity)
+         (constant? property)]}
+  (let [props (p/properties entity)
+        props (filter #(= (:value property) (first %)) props)]
+    (mapv #(gather-property-value context %) props)))
+
+(defn gather-values [context entities property]
+  {:pre [(instance? Context context)
+         (vector? entities)
+         (every? #(satisfies? p/IEntity %) entities)
+         (constant? property)]}
+  (into []
+        (apply concat
+               (mapv #(gather-entity-values context % property)
+                     entities))))
+
+(defn has-property-value? [entity property values]
+  {:pre [(satisfies? p/IEntity entity)
+         (constant? property)]}
+  (some (fn [[prop val]]
+          (and (= prop (:value property))
+               (or (= val values)
+                   (some #{val} values))))
+        (p/properties entity)))
+
+(defn process-pattern*
+  [context pattern load-one-fn load-all-fn]
   (debug context "PATTERN" (pattern-str pattern))
-  (debug context "-------")
-  (let [id-or-ids (resolve-id context (first (:elements pattern)))
+  (let [[id property value] (:elements pattern)
         adapter (p/adapter (:conn context))
-        atoms (if (instance? Variable id-or-ids)
-                (many->atoms adapter)
-                (if (coll? id-or-ids)
-                  (->> id-or-ids
-                       (map #(one->atoms adapter %))
-                       (apply concat))
-                  (one->atoms adapter id-or-ids)))
-        res (match-atoms-against-pattern context pattern atoms)
-        matches (:matches res)
-        rejects (:rejects res)
-        new-context (update context :matches
-                            consolidate-matches
-                            matches rejects)]
-    (debug context "BEFORE")
-    (debug-pprint context (:matches context))
-    (debug context "MATCHES")
-    (debug-pprint context matches)
-    (debug context "REJECTS")
-    (debug-pprint context rejects)
-    (debug context "AFTER")
-    (debug-pprint new-context (:matches new-context))
-    new-context))
+        ;; Resolve id (var or constant) into entities
+        entities (if (variable? id)
+                   (if (var-bound? context id)
+                     (->> (get-value context id)
+                          (mapv #(load-one-fn adapter %)))
+                     (load-all-fn adapter))
+                   [(load-one-fn adapter (:value id))])
+        _ (debug context "PATTERN entities")
+        _ (debug-pprint context entities)
+        ;; Drop entities that don't have the property
+        entities (filterv #(has-property? % property) entities)
+        _ (debug context "PATTERN entities with" (element-str property))
+        _ (debug-pprint context entities)
+        ;; Gather allowed values
+        values (if (variable? value)
+                 (if (var-bound? context value)
+                   (get-value context value)
+                   (gather-values context entities property))
+                 [(:value value)])
+        _ (debug context "PATTERN values")
+        _ (debug-pprint context values)
+        ;; Drop entities that don't match the allowed values
+        entities (filterv #(has-property-value? % property values)
+                          entities)
+        _ (debug context "PATTERN entities with matching properties")
+        _ (debug-pprint context entities)]
+    (-> context
+        (update :bindings
+                (fn [bindings]
+                  (if (variable? id)
+                    (assoc bindings id (mapv p/id entities))
+                    bindings)))
+        (update :bindings
+                (fn [bindings]
+                  (if (variable? value)
+                    (assoc bindings value values)
+                    bindings))))))
 
 (defmulti process-pattern dispatch-on-property-base)
 
 (defmethod process-pattern :ref
   [context pattern]
-  (process-pattern* context
-                    pattern
-                    p/reference->atoms
-                    p/references->atoms))
+  (process-pattern* context pattern p/reference p/references))
 
 (defmethod process-pattern :commit
   [context pattern]
-  (process-pattern* context
-                    pattern
-                    p/commit->atoms
-                    p/commits->atoms))
+  (process-pattern* context pattern p/commit p/commits))
 
 (defmethod process-pattern :class
   [context pattern]
-  (process-pattern* context
-                    pattern
-                    p/class->atoms
-                    p/classes->atoms))
+  (process-pattern* context pattern p/class p/classes))
 
 (defn process-object-pattern
   [context pattern]
-  (process-pattern* context
-                    pattern
-                    p/object->atoms
-                    p/objects->atoms))
+  (process-pattern* context pattern p/object p/objects))
 
 (defmethod process-pattern :object
   [context pattern]
@@ -337,21 +280,17 @@
 
 (defn collect [var-or-vars context]
   (debug context "COLLECT" (var-str var-or-vars))
-  (let [val-or-vals (if (sequential? var-or-vars)
-                      (mapv #(resolve-var context %) var-or-vars)
-                      (resolve-var context var-or-vars))
-        _ (debug context "  VAL OR VALS >>" val-or-vals)
-        vectorized (if (sequential? var-or-vars)
-                     (apply mapv vector val-or-vals)
-                     val-or-vals)
-        _ (debug context "  VECTORIZED >>" vectorized)
-        res (if (nil? vectorized)
-              #{}
-              (if (coll? vectorized)
-                (into #{} vectorized)
-                #{vectorized}))]
-    (debug context "COLLECT <<" res)
-    res))
+  (if (variable? var-or-vars)
+    (let [val (set (get-value context var-or-vars))]
+      (debug context "COLLECT val")
+      (debug-pprint context val)
+      val)
+    (if (coll? var-or-vars)
+      (let [vals (mapv #(get-value context %) var-or-vars)]
+        (assert (apply = (map count vals)))
+        (debug context "COLLECT vals")
+        (debug-pprint context vals)
+        (apply mapv vector vals)))))
 
 ;;;; Entry point
 
@@ -363,7 +302,7 @@
   (let [q (parse-query q)
         ins (zipmap (:in q) args)
         results (reduce process-clause
-                        (Context. conn ins [])
+                        (Context. conn ins)
                         (:where q))]
     (debug results ">>" results)
     (collect (:find q) results)))

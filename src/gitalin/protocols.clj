@@ -1,21 +1,21 @@
-(ns gitalin.protocols)
+(ns gitalin.protocols
+  (:refer-clojure :exclude [class]))
 
-(defprotocol ICoatom
+(defprotocol IEntity
   (id [this])
-  (property [this])
-  (value [this]))
+  (properties [this]))
 
 (defprotocol IAdapter
   (connect [this])
   (disconnect [this])
-  (references->atoms [this])
-  (reference->atoms [this id])
-  (commits->atoms [this])
-  (commit->atoms [this id])
-  (classes->atoms [this])
-  (class->atoms [this id])
-  (objects->atoms [this])
-  (object->atoms [this id])
+  (references [this])
+  (reference [this id])
+  (commits [this])
+  (commit [this id])
+  (classes [this])
+  (class [this id])
+  (objects [this])
+  (object [this id])
   (transact! [this info mutations]))
 
 (defprotocol IConnection
