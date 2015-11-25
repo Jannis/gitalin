@@ -285,7 +285,7 @@
 (defspec adding-objects-actually-creates-these-objects 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
-    (with-conn (assoc (c/connect store) :debug true)
+    (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
       (let [additions (->> txs

@@ -139,17 +139,41 @@
 
 ;;;; Execution context and variable lookup
 
-(defrecord Context [conn bindings])
+(defrecord Context [conn bindings deps])
+
+(defrecord BindingValue [value source-entity])
 
 (defn var-bound? [context var]
   {:pre [(instance? Context context)
          (variable? var)]}
   (contains? (:bindings context) var))
 
-(defn get-value [context var]
+(defn get-binding [context var]
   {:pre [(instance? Context context)
          (variable? var)]}
   ((:bindings context) var))
+
+(defn get-values [context var]
+  {:pre [(instance? Context context)
+         (variable? var)]}
+  (mapv :value (get-binding context var)))
+
+;;;; Variable dependencies
+
+(defn gather-pattern-dependencies [deps pattern]
+  (when (instance? Pattern pattern)
+    (let [[id property value] (:elements pattern)]
+      (if (and (variable? id)
+               (variable? value))
+        (update deps id conj value)
+        deps))))
+
+(defn gather-clause-dependencies [deps clause]
+  (or (gather-pattern-dependencies deps clause)))
+
+(defn gather-dependencies [clauses]
+  {:pre [(vector? clauses)]}
+  (reduce gather-clause-dependencies {} clauses))
 
 ;;;; Query execution
 
@@ -167,11 +191,9 @@
   (let [props (p/properties entity)]
     (not (empty? (filter #(= (:value property) (first %)) props)))))
 
-(defmulti gather-property-value (fn [context prop] (first prop)))
-
-(defmethod gather-property-value :default
-  [context prop]
-  (second prop))
+(defn gather-property-value
+  [context entity prop]
+  (BindingValue. (second prop) entity))
 
 (defn gather-entity-values [context entity property]
   {:pre [(instance? Context context)
@@ -179,7 +201,7 @@
          (constant? property)]}
   (let [props (p/properties entity)
         props (filter #(= (:value property) (first %)) props)]
-    (mapv #(gather-property-value context %) props)))
+    (mapv #(gather-property-value context entity %) props)))
 
 (defn gather-values [context entities property]
   {:pre [(instance? Context context)
@@ -197,8 +219,38 @@
   (some (fn [[prop val]]
           (and (= prop (:value property))
                (or (= val values)
-                   (some #{val} values))))
+                   (some #{val} (map :value values)))))
         (p/properties entity)))
+
+(defn update-dependency [new-entities context dep]
+  (debug context "PATTERN update dependency" (:symbol dep))
+  (if (var-bound? context dep)
+    (let [values (get-binding context dep)
+          values-for-entities (filterv (fn [value]
+                                         (some #{(:source-entity value)}
+                                               new-entities))
+                                       values)]
+      (debug context "PATTERN new values:")
+      (debug-pprint context values-for-entities)
+      (-> context
+          (assoc-in [:bindings dep] values-for-entities)))
+    context))
+
+(defn update-dependencies [context new-entities deps]
+  (reduce #(update-dependency new-entities %1 %2) context deps))
+
+(defn maybe-update-binding [context var values]
+  (if (variable? var)
+    (do
+      (debug context "PATTERN update binding" (:symbol var))
+      (debug context "PATTERN new values:")
+      (debug-pprint context values)
+      (let [deps ((:deps context) var)
+            new-entities (map :source-entity values)]
+        (-> context
+            (assoc-in [:bindings var] values)
+            (update-dependencies new-entities deps))))
+    context))
 
 (defn process-pattern*
   [context pattern load-one-fn load-all-fn]
@@ -208,7 +260,7 @@
         ;; Resolve id (var or constant) into entities
         entities (if (variable? id)
                    (if (var-bound? context id)
-                     (->> (get-value context id)
+                     (->> (get-values context id)
                           (mapv #(load-one-fn adapter %)))
                      (load-all-fn adapter))
                    [(load-one-fn adapter (:value id))])
@@ -221,29 +273,20 @@
         ;; Gather allowed values
         values (if (variable? value)
                  (if (var-bound? context value)
-                   (get-value context value)
+                   (get-binding context value)
                    (gather-values context entities property))
-                 [(:value value)])
+                 [(BindingValue. (:value value) nil)])
         _ (debug context "PATTERN values")
         _ (debug-pprint context values)
         ;; Drop entities that don't match the allowed values
         entities (filterv #(has-property-value? % property values)
                           entities)
         _ (debug context "PATTERN entities with matching properties")
-        _ (debug-pprint context entities)]
+        _ (debug-pprint context entities)
+        entity-values (mapv #(BindingValue. (:id %) %) entities)]
     (-> context
-        (update :bindings
-                (fn [bindings]
-                  (if (variable? id)
-                    (do
-                      (debug context "PATTERN update" (element-str id))
-                      (assoc bindings id (mapv p/id entities)))
-                    bindings)))
-        (update :bindings
-                (fn [bindings]
-                  (if (variable? value)
-                    (assoc bindings value values)
-                    bindings))))))
+        (maybe-update-binding id entity-values)
+        (maybe-update-binding value values))))
 
 (defmulti process-pattern dispatch-on-property-base)
 
@@ -283,12 +326,12 @@
 (defn collect [var-or-vars context]
   (debug context "COLLECT" (var-str var-or-vars))
   (if (variable? var-or-vars)
-    (let [val (set (get-value context var-or-vars))]
+    (let [val (into #{} (get-values context var-or-vars))]
       (debug context "COLLECT val")
       (debug-pprint context val)
       val)
     (if (coll? var-or-vars)
-      (let [vals (mapv #(get-value context %) var-or-vars)]
+      (let [vals (mapv #(get-values context %) var-or-vars)]
         (assert (apply = (map count vals)))
         (debug context "COLLECT vals")
         (debug-pprint context vals)
@@ -303,8 +346,12 @@
   (debug {:conn conn} "q" q args)
   (let [q (parse-query q)
         ins (zipmap (:in q) args)
+        deps (gather-dependencies (:where q))
+        _ (debug {:conn conn} "dependencies")
+        _ (debug-pprint {:conn conn} deps)
         results (reduce process-clause
-                        (Context. conn ins)
+                        (Context. conn ins deps)
                         (:where q))]
-    (debug results ">>" results)
+    (debug results "RESULTS")
+    (debug-pprint results results)
     (collect (:find q) results)))
