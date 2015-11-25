@@ -260,17 +260,20 @@
   (and (sequential? mutation)
        (= :object/add (first mutation))))
 
+(defn get-object-additions [txs]
+  (->> txs
+       (map :data)
+       (map #(filter object-add? %))
+       (apply concat)))
+
 (defspec adding-objects-creates-classes 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
-      (let [adds (->> txs
-                      (map :data)
-                      (map #(filter object-add? %))
-                      (apply concat))
-            class-names (map second adds)]
+      (let [additions (get-object-additions txs)
+            class-names (map second additions)]
          (is (= (set class-names)
                 (c/q conn '{:find ?name
                             :where
@@ -282,26 +285,24 @@
 (defn var-from-index [i]
   (symbol (str "?v" i)))
 
-(defspec adding-objects-actually-creates-these-objects 10
+(defspec each-created-object-exists-in-the-corresponding-transaction 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
-      (let [additions (->> txs
-                           (map :data)
-                           (map #(filter object-add? %))
-                           (apply concat))
+      (let [additions (get-object-additions txs) 
             data (map (fn [[_ class uuid prop val]]
                         [class uuid prop val])
-                      additions)]
-        (is (= (set (map (fn [[class uuid _ val]]
-                           [class uuid val])
-                         data))
+                      additions)
+            classes-uuids-and-values (map (fn [[class uuid _ val]]
+                                            [class uuid val])
+                                          data)]
+        (is (= (into #{} classes-uuids-and-values)
                (into #{}
                 (apply concat
                  (for [d data]
-                   (let [[class uuid prop val] d]
+                   (let [[_ _ prop _] d]
                      (c/q conn `{:find [?c ?u ?v]
                                  :where [[?ref :ref/name "HEAD"]
                                          [?ref :ref/commit ?commit]
@@ -310,3 +311,27 @@
                                          [?o :object/class ?c]
                                          [?o :object/uuid ?u]
                                          [?o ~prop ?v]]})))))))))))
+
+(defspec all-created-objects-are-still-present-at-the-end 10
+  (prop/for-all [store setup/gen-store
+                 txs setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} txs]
+        (c/transact! conn info data))
+      (let [additions (get-object-additions txs) 
+            data (map (fn [[_ class uuid prop]]
+                        [class uuid prop])
+                      additions)
+            classes-and-uuids (map (fn [[class uuid _]]
+                                     [class uuid])
+                                   data)]
+        (is (= (into #{} classes-and-uuids)
+               (into #{} (c/q conn
+                              `{:find [?c ?u]
+                                :where [[?ref :ref/name "HEAD"]
+                                        [?ref :ref/commit ?commit]
+                                        [?commit :commit/class ?class]
+                                        [?class :class/object ?o]
+                                        [?o :object/class ?c]
+                                        [?o :object/uuid ?u]]}))))))))
+
