@@ -235,7 +235,9 @@
         (update :bindings
                 (fn [bindings]
                   (if (variable? id)
-                    (assoc bindings id (mapv p/id entities))
+                    (do
+                      (debug context "PATTERN update" (element-str id))
+                      (assoc bindings id (mapv p/id entities)))
                     bindings)))
         (update :bindings
                 (fn [bindings]
