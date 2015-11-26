@@ -3,7 +3,6 @@
             [clojure.test.check.clojure-test :refer [defspec]]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [com.stuartsierra.component :as component]
             [me.raynes.fs :as fs]
             [gitalin.git.repo :as repo]
             [gitalin.adapter :as a]

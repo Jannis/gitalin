@@ -2,7 +2,6 @@
   (:import [clojure.lang PersistentVector])
   (:require [clojure.pprint :refer [pprint]]
             [clojure.string :as str]
-            [com.stuartsierra.component :as component]
             [gitalin.git.coerce :refer [to-oid]]
             [gitalin.git.commit :as commit]
             [gitalin.git.ident :as ident]

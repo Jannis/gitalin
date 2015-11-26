@@ -12,9 +12,7 @@
 
                  ;; General
                  [clj-jgit "0.8.8"]
-                 [com.stuartsierra/component "0.3.0"]
-                 [com.cognitect/transit-clj "0.8.281"]
-                 [danlentz/clj-uuid "0.1.6"]])
+                 [com.cognitect/transit-clj "0.8.281"]])
 
 (task-options!
  pom {:project 'gitalin
