@@ -1,6 +1,6 @@
 # Gitalin
 
-> *"Experts call for caution over Ritalin"*
+> *"Experts call for caution over Gitalin"*
 > &mdash; BBC News (not really)
 
 gitalin is an object store for Clojure based on Git. Its data model
