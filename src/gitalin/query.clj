@@ -95,8 +95,8 @@
       (parse-seq parse-variable form)))
 
 (defn parse-in [form]
-  (let [in (or (:symbol (parse-variable form))
-               (map :symbol (parse-seq parse-variable form)))]
+  (let [in (or (parse-variable form)
+               (parse-seq parse-variable form))]
     (cond-> in
       (not (sequential? in)) vector)))
 
@@ -271,6 +271,11 @@
         _ (debug context "PATTERN entities with" (element-str property))
         _ (debug-pprint context entities)
         ;; Gather allowed values
+        _ (debug context "PATTERN value" value)
+        _ (debug context "PATTERN value var bound?"
+                 (var-bound? context value))
+        _ (debug context "PATTERN bindings:")
+        _ (debug-pprint context (:bindings context))
         values (if (variable? value)
                  (if (var-bound? context value)
                    (get-binding context value)
@@ -335,7 +340,7 @@
         (assert (apply = (map count vals)))
         (debug context "COLLECT vals")
         (debug-pprint context vals)
-        (apply mapv vector vals)))))
+        (into #{} (apply mapv vector vals))))))
 
 ;;;; Entry point
 
