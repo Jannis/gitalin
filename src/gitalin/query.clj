@@ -18,14 +18,12 @@
 (defmacro debug
   [context & body]
   `(when (-> ~context :conn :debug)
-     (println ~@body)
-     (flush)))
+     (println ~@body)))
 
 (defmacro debug-pprint
   [context & body]
   `(when (-> ~context :conn :debug)
-     (pprint ~@body)
-     (flush)))
+     (pprint ~@body)))
 
 ;;;; Query representation
 

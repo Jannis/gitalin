@@ -238,8 +238,40 @@
             (and (is (set? messages))
                  (is (= expected-messages messages))))))))
 
+(defspec commit-parents-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [parents (c/q conn
+                             '{:find ?p
+                               :where [[?c :commit/parent ?p]]})]
+            (and (is (= (- (count transactions) 1)
+                        (count parents)))
+                 (is (every?
+                      #(re-matches #"commit/[0-9abcdef]{40}" %)
+                      parents))))))))
+
+(defspec commit-parents-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [expected-classes (->> transactions
+                                      (map :data)
+                                      (map (fn [t] (map second t)))
+                                      (apply concat)
+                                      (into #{}))
+                classes (c/q conn
+                             '{:find ?cln
+                               :where [[?c :commit/class ?cl]
+                                       [?cl :class/name ?cln]]})]
+            (is (= expected-classes classes)))))))
+
 ;; TODO:
-;; * Test for querying :commit/parent
-;; * Test for querying :commit/class
 ;; * Tests for querying classes
 ;; * Tests for querying objects
