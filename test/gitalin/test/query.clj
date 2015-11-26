@@ -33,7 +33,6 @@
                       (c/q conn '{:find ?c
                                   :where [[?ref :ref/commit ?c]]}))))))))
 
-
 (defspec ref-names-can-be-queried 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-transactions]
@@ -140,52 +139,107 @@
 
 ;;;; Commit queries
 
+(defspec querying-commits-after-empty-transactions-returns-nothing 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (not (empty? transactions))
+          (and (is (= #{}
+                      (c/q conn
+                           '{:find ?s
+                             :where [[?commit :commit/sha1 ?s]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?a
+                             :where [[?commit :commit/author ?a]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?c
+                             :where [[?commit :commit/committer ?c]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?m
+                             :where [[?commit :commit/message ?m]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?c
+                             :where [[?commit :commit/class ?c]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?p
+                             :where [[?commit :commit/parent ?p]]}))))))))
 
-;; (defspec querying-commits-works
-;;   (prop/for-all [v (gen/tuple setup/gen-store
-;;                               gen/uuid
-;;                               gen/uuid
-;;                               gen/keyword
-;;                               gen/keyword
-;;                               gen/any
-;;                               gen/any)]
-;;     (let [[adapter uuid1 uuid2 prop1 prop2 val1 val2] v]
-;;       (with-conn (c/connect adapter)
-;;         (c/transact! conn
-;;                      {:target "HEAD"
-;;                       :author {:name "Test User"
-;;                                :email "<test@user.org>"}
-;;                       :message "Create object"}
-;;                      [[:object/add "class" (str uuid1) prop1 val1]])
-;;         (c/transact! conn
-;;                      {:target "HEAD"
-;;                       :author {:name "Other User"
-;;                                :email "<other@user.org>"}
-;;                       :message "Create another object"}
-;;                      [[:object/add "other" (str uuid2) prop2 val2]])
+(defspec commit-sha1s-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [sha1s (c/q conn '{:find ?s
+                                  :where [[?c :commit/sha1 ?s]]})]
+            (and (is (set? sha1s))
+                 (is (every? #(re-matches #"[0-9abcdef]{40}" %)
+                             sha1s))))))))
 
-;;         ;; Verify there are two separate commits
-;;         (let [res (c/q conn
-;;                        '{:find ?c
-;;                          :where [[?c :commit/sha1 ?s]]})]
-;;           (and (is (set? res))
-;;                (is (= 2 (count res)))
-;;                (is (every? string? res))
-;;                (is (every? #(re-matches
-;;                              #"commit/[0-9abcdef]{40}"
-;;                              %)
-;;                            res))))
+(defspec commit-authors-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [expected-authors (into #{}
+                                       (comp (map :info)
+                                             (map :author))
+                                       transactions)
+                authors (c/q conn '{:find ?a
+                                    :where [[?c :commit/author ?a]]})
+                authors (into #{}
+                              (map #(select-keys % [:name :email]))
+                              authors)]
+            (is (= expected-authors authors)))))))
 
-;;         ;; Verify that there are two different commit messages
-;;         (is (= #{"Create object" "Create another object"}
-;;                (c/q conn
-;;                     '{:find ?m
-;;                       :where [[?c :commit/message ?m]]})))
+(defspec commit-committers-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [expected-committers (into #{}
+                                          (comp (map :info)
+                                                (map :committer))
+                                          transactions)
+                committers (c/q conn
+                                '{:find ?cm
+                                  :where [[?c :commit/committer ?cm]]})
+                committers (into #{}
+                              (map #(select-keys % [:name :email]))
+                              committers)]
+            (is (= expected-committers committers)))))))
 
-;;         ;; Verify that HEAD points to the second transaction commit
-;;         (let [res (c/q conn
-;;                        '{:find ?msg
-;;                          :where [[?ref :ref/name "HEAD"]
-;;                                  [?ref :ref/commit ?commit]
-;;                                  [?commit :commit/message ?msg]]})]
-;;           (is (= "Create another object" res)))))))
+(defspec commit-messages-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [expected-messages (into #{}
+                                        (comp (map :info)
+                                              (map :message))
+                                          transactions)
+                messages (c/q conn
+                              '{:find ?msg
+                                :where [[?c :commit/message ?msg]]})]
+            (and (is (set? messages))
+                 (is (= expected-messages messages))))))))
+
+;; TODO:
+;; * Test for querying :commit/parent
+;; * Test for querying :commit/class
+;; * Tests for querying classes
+;; * Tests for querying objects
