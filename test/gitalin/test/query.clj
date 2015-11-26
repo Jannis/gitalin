@@ -6,6 +6,7 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [gitalin.test.setup :as setup :refer [with-conn]]
+            [gitalin.test.transact :refer [object-add?]]
             [gitalin.core :as c]
             [gitalin.query :as q]
             [gitalin.protocols :as p]
@@ -250,9 +251,8 @@
                                :where [[?c :commit/parent ?p]]})]
             (and (is (= (- (count transactions) 1)
                         (count parents)))
-                 (is (every?
-                      #(re-matches #"commit/[0-9abcdef]{40}" %)
-                      parents))))))))
+                 (is (every? #(re-matches #"commit/[0-9abcdef]{40}" %)
+                             parents))))))))
 
 (defspec commit-parents-can-be-queried 10
   (prop/for-all [store setup/gen-store
@@ -310,6 +310,23 @@
                                   :where [[?c :class/name ?n]]})]
             (is (= expected-names names)))))))
 
+(defspec class-commits-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug true)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [non-empty-transactions (->>
+                                        transactions
+                                        (map :data)
+                                        (map #(filter object-add? %))
+                                        (remove empty?))
+                commits (c/q conn '{:find ?c
+                                    :where [[?class :class/commit ?c]]})]
+            (and (is (set? commits))
+                 (is (every? #(re-matches #"commit/[0-9abcdef]{40}" %)
+                             commits))))))))
 ;; TODO:
 ;; * Tests for querying classes
 ;; * Tests for querying objects
