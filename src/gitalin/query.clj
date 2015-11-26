@@ -259,8 +259,12 @@
         adapter (p/adapter (:conn context))
         ;; Resolve id (var or constant) into entities
         _ (debug context "PATTERN id" (element-str id))
-        _ (debug context "PATTERN id bound?" (var-bound? context id))
-        _ (debug context "PATTERN id value" (get-values context id))
+        _ (debug context "PATTERN id bound?"
+                 (and (variable? id)
+                      (var-bound? context id)))
+        _ (debug context "PATTERN id value"
+                 (when (variable? id)
+                   (get-values context id)))
         entities (if (variable? id)
                    (if (var-bound? context id)
                      (->> (get-values context id)
@@ -276,7 +280,8 @@
         ;; Gather allowed values
         _ (debug context "PATTERN value" value)
         _ (debug context "PATTERN value var bound?"
-                 (var-bound? context value))
+                 (and (variable? value)
+                      (var-bound? context value)))
         _ (debug context "PATTERN bindings:")
         _ (debug-pprint context (:bindings context))
         values (if (variable? value)

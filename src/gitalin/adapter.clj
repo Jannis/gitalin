@@ -14,11 +14,6 @@
            (gitalin.classes GitalinClass)
            (gitalin.objects GitalinObject)))
 
-;;;; Helpers
-
-(defn kv-value-set? [[k v]]
-  (not (nil? v)))
-
 ;;;; Default adapter
 
 ;;; Entities
@@ -191,7 +186,7 @@
   (reference/load-all repo))
 
 (defn load-all-commits [repo]
-  (->> (reference/load-all repo)
+  (->> (load-all-references repo)
        (map :head)
        (map #(collect-commits repo %))
        (apply concat)

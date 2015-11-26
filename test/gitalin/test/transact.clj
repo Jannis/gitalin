@@ -150,7 +150,7 @@
                                    data)]
         (is (= (into #{} classes-and-uuids)
                (into #{} (c/q conn
-                              `{:find [?c ?u]
+                              '{:find [?c ?u]
                                 :where [[?ref :ref/name "HEAD"]
                                         [?ref :ref/commit ?commit]
                                         [?commit :commit/class ?class]
