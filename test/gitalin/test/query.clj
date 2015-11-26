@@ -11,6 +11,8 @@
             [gitalin.protocols :as p]
             [gitalin.adapter :as a]))
 
+;;;; Reference queries
+
 (defspec querying-refs-after-empty-transactions-returns-nothing 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-transactions]
@@ -113,7 +115,7 @@
 (defspec ref-ids-can-be-parameterized 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-transactions]
-    (with-conn (assoc (c/connect store) :debug true)
+    (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
       (or (empty? transactions)
@@ -135,6 +137,9 @@
                              :in ?type
                              :where [[?ref :ref/type ?type]]}
                       "branch")))))))
+
+;;;; Commit queries
+
 
 ;; (defspec querying-commits-works
 ;;   (prop/for-all [v (gen/tuple setup/gen-store
