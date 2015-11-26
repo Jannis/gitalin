@@ -327,6 +327,19 @@
             (and (is (set? commits))
                  (is (every? #(re-matches #"commit/[0-9abcdef]{40}" %)
                              commits))))))))
+
+(defspec class-objects-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [objects (c/q conn '{:find ?o
+                                    :where [[?class :class/object ?o]]})]
+            (and (is (set? objects))
+                 (is (every? #(re-matches #"object/.+" %)
+                             objects))))))))
+
 ;; TODO:
-;; * Tests for querying classes
 ;; * Tests for querying objects
