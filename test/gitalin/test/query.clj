@@ -272,6 +272,44 @@
                                        [?cl :class/name ?cln]]})]
             (is (= expected-classes classes)))))))
 
+;;;; Class queries
+
+(defspec querying-classes-after-empty-transactions-returns-nothing 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (not (empty? transactions))
+          (and (is (= #{}
+                      (c/q conn
+                           '{:find ?s
+                             :where [[?class :class/name ?s]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?c
+                             :where [[?class :class/commit ?c]]})))
+               (is (= #{}
+                      (c/q conn
+                           '{:find ?o
+                             :where [[?class :class/object ?o]]}))))))))
+
+(defspec class-names-can-be-queried 10
+  (prop/for-all [store setup/gen-store
+                 transactions setup/gen-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} transactions]
+        (c/transact! conn info data))
+      (or (empty? transactions)
+          (let [expected-names (->> transactions
+                                    (map :data)
+                                    (map (fn [t] (map second t)))
+                                    (apply concat)
+                                    (into #{}))
+                names (c/q conn '{:find ?n
+                                  :where [[?c :class/name ?n]]})]
+            (is (= expected-names names)))))))
+
 ;; TODO:
 ;; * Tests for querying classes
 ;; * Tests for querying objects

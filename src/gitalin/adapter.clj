@@ -168,7 +168,7 @@
                             (:properties object)))))))
 
 (defn collect-classes [repo commit']
-  (let [tree (commit/tree commit')]
+  (let [tree (commit/tree repo commit')]
     (map (fn [class]
            (-> class
                (vary-meta assoc :commit commit')
