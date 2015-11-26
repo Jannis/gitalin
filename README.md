@@ -3,6 +3,8 @@
 > *"Experts call for caution over Gitalin"*
 > &mdash; BBC News (not really)
 
+[![Build Status](https://travis-ci.org/Jannis/gitalin.svg?branch=master)](https://travis-ci.org/Jannis/gitalin)
+
 gitalin is an object store for Clojure based on Git. Its data model
 is simple: there are
 
