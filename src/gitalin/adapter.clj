@@ -14,18 +14,7 @@
            (gitalin.classes GitalinClass)
            (gitalin.objects GitalinObject)))
 
-;;;; Default adapter
-
-;;; Entities
-
-(defrecord Entity [id properties]
-  p/IEntity
-  (id [this]
-    id)
-  (properties [this]
-    properties))
-
-;;; Transactions
+;;;; Transactions
 
 (defmulti mutate-step (fn [_ _ mutation] (first mutation)))
 
@@ -53,7 +42,7 @@
     (when (reference/update! repo target commit)
       (reference/load repo (:target info)))))
 
-;;; Queries
+;;;; Conversion between objects and IDs
 
 (defn obj->id [obj]
   (cond
@@ -103,6 +92,15 @@
       :else
       nil)))
 
+;;;; Entities
+
+(defrecord Entity [id properties]
+  p/IEntity
+  (id [this]
+    id)
+  (properties [this]
+    properties))
+
 (defn finalize-props [props]
   (into [] (filter #(not (nil? (second %))) props)))
 
@@ -111,16 +109,6 @@
                [:ref/commit (some->> ref :head obj->id)]
                [:ref/type (:type ref)]]]
     (Entity. (obj->id ref) (finalize-props props))))
-
-(defn collect-commits [repo commit]
-  (flatten
-   (into [commit]
-         (mapv (fn [sha1]
-                 (->> sha1
-                      (to-oid repo)
-                      (commit/load repo)
-                      (collect-commits repo)))
-               (:parents commit)))))
 
 (defn commit->entity [repo com]
   (let [tree (commit/tree repo com)
@@ -167,6 +155,18 @@
                       (mapv (fn [[prop val]] [prop val])
                             (:properties object)))))))
 
+;;;; Loading objects from Git
+
+(defn collect-commits [repo commit]
+  (flatten
+   (into [commit]
+         (mapv (fn [sha1]
+                 (->> sha1
+                      (to-oid repo)
+                      (commit/load repo)
+                      (collect-commits repo)))
+               (:parents commit)))))
+
 (defn collect-classes [repo commit']
   (let [tree (commit/tree repo commit')]
     (map (fn [class]
@@ -203,6 +203,8 @@
        (map #(collect-objects repo %))
        (apply concat)
        (set)))
+
+;;;; Default adapter implementation
 
 (defrecord Adapter [path repo]
   p/IAdapter

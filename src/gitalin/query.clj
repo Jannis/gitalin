@@ -32,7 +32,6 @@
 (defrecord Variable [symbol])
 (defrecord Constant [value])
 (defrecord Pattern [elements])
-(defrecord Function [symbol args])
 
 (defn variable? [x]
   (instance? Variable x))
@@ -81,13 +80,6 @@
                (reduced nil))
             [] form)))
 
-(defn parse-set [parse-fn form]
-  (when (set? form)
-    (reduce #(if-let [res (parse-fn %2)]
-               (conj %1 res)
-               (reduced nil))
-            #{} form)))
-
 (defn parse-find [form]
   (or (parse-variable form)
       (parse-seq parse-variable form)))
@@ -106,29 +98,11 @@
   (when (vector? form)
     (Pattern. (parse-seq parse-pattern-element form))))
 
-(defn parse-function-argument [form]
-  (or (parse-variable form)
-      (parse-set parse-function-argument form)
-      (parse-constant form)))
-
-(defn parse-function-arguments [form]
-  (when (sequential? form)
-    (parse-seq parse-function-argument form)))
-
-(defn parse-function [form]
-  (when (and (seq? form) (symbol? (first form)))
-    (let [args (parse-function-arguments (rest form))]
-      (Function. (first form) args))))
-
-(defn parse-clause [form]
-  (or (parse-pattern form)
-      (parse-function form)))
-
 (defn parse-clauses [form]
-  (parse-seq parse-clause form))
+  (parse-seq parse-pattern form))
 
 (defn parse-where [form]
-  (or (parse-clauses form)))
+  (parse-clauses form))
 
 (defn parse-query [q]
   (map->Query {:find (parse-find (:find q))
@@ -191,6 +165,10 @@
 
 (defn gather-property-value
   [context entity prop]
+  {:pre [(satisfies? p/IEntity entity)
+         (vector? prop)
+         (= 2 (count prop))
+         (keyword? (first prop))]}
   (BindingValue. (second prop) entity))
 
 (defn gather-entity-values [context entity property]
@@ -222,6 +200,9 @@
 
 (defn update-dependency [new-entities context dep]
   (debug context "PATTERN update dependency" (:symbol dep))
+  {:pre [(coll? new-entities)
+         (instance? Context context)
+         (variable? dep)]}
   (if (var-bound? context dep)
     (let [values (get-binding context dep)
           values-for-entities (filterv (fn [value]
@@ -235,9 +216,14 @@
     context))
 
 (defn update-dependencies [context new-entities deps]
+  {:pre [(instance? Context context)
+         (coll? new-entities)
+         (every? variable? deps)]}
   (reduce #(update-dependency new-entities %1 %2) context deps))
 
 (defn maybe-update-binding [context var values]
+  {:pre [(instance? Context context)
+         (every? #(instance? BindingValue %) values)]}
   (if (variable? var)
     (do
       (debug context "PATTERN update binding" (:symbol var))

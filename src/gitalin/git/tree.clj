@@ -3,9 +3,9 @@
   (:refer-clojure :exclude [load])
   (:require [gitalin.git.coerce :refer [to-file-mode to-oid to-sha1]]
             [gitalin.git.repo :refer [object-inserter
-                                            rev-walk
-                                            tree-walk
-                                            tree-walk-for-entry]]))
+                                      rev-walk
+                                      tree-walk
+                                      tree-walk-for-entry]]))
 
 (defn tree-formatter []
   (TreeFormatter.))

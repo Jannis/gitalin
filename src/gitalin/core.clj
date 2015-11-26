@@ -19,24 +19,25 @@
 (defn connect [adapter]
   (Connection. (java.util.UUID/randomUUID) (p/connect adapter)))
 
-;;;; Misc
+(defn connection? [conn]
+  (instance? Connection conn))
+
+;;;; Store creation
 
 (defn create-store! [path]
   (if (git-repo/init path) path nil))
 
-(defn connection? [conn]
-  (instance? Connection conn))
-
-(defn commit-info? [info]
-  (map? info))
-
-(defn transact! [conn info mutations]
-  {:pre [(satisfies? p/IConnection conn)
-         (commit-info? info)
-         (vector? mutations)]}
-  (p/transact! (p/adapter conn) info mutations))
+;;;; Queries
 
 (defn q [conn q & args]
   {:pre [(satisfies? p/IConnection conn)
          (map? q)]}
   (query/q conn q args))
+
+;;;; Transactions
+
+(defn transact! [conn info mutations]
+  {:pre [(satisfies? p/IConnection conn)
+         (map? info)
+         (vector? mutations)]}
+  (p/transact! (p/adapter conn) info mutations))

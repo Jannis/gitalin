@@ -313,7 +313,7 @@
 (defspec class-commits-can-be-queried 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-transactions]
-    (with-conn (assoc (c/connect store) :debug true)
+    (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
       (or (empty? transactions)
