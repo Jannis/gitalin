@@ -14,21 +14,45 @@
            (gitalin.classes GitalinClass)
            (gitalin.objects GitalinObject)))
 
+;;;; Temporary IDs
+
+(defrecord TempId [uuid])
+
+(defn tempid []
+  (TempId. (java.util.UUID/randomUUID)))
+
+(defn tempid? [id]
+  (instance? TempId id))
+
+;;;; Transaction context
+
+(defrecord TransactionContext [repo tree tempids])
+
 ;;;; Transactions
 
-(defmulti mutate-step (fn [_ _ mutation] (first mutation)))
+(defmulti mutate-step (fn [_ mutation] (first mutation)))
 
 (defmethod mutate-step :object/add
-  [repo base [_ class uuid property value]]
-  (let [tree (or (tree/get-tree repo base class)
+  [context [_ class uuid property value]]
+  (let [repo (:repo context)
+        tree (or (tree/get-tree repo (:tree context) class)
                  (tree/make-empty repo))
-        object (objects/make uuid class {property value})
+        real-uuid (if (tempid? uuid)
+                    (:uuid uuid)
+                    uuid)
+        new-tempids (if (tempid? uuid)
+                      (assoc (:tempids context) uuid real-uuid)
+                      (:tempids context))
+        object (objects/make real-uuid class {property value})
         blob (objects/make-blob repo object)
-        entry (objects/to-tree-entry object blob)]
-    (->> entry
-         (tree/update-entry repo tree)
-         (tree/to-tree-entry class)
-         (tree/update-entry repo base))))
+        entry (objects/to-tree-entry object blob)
+        new-tree (->> entry
+                      (tree/update-entry repo tree)
+                      (tree/to-tree-entry class)
+                      (tree/update-entry repo (:tree context)))]
+    (-> context
+        (assoc :tree new-tree)
+        (assoc :tempids new-tempids))))
 
 (defn commit! [repo info parents tree]
   (commit/make repo tree parents
@@ -260,8 +284,10 @@
           base-tree (if base
                       (commit/tree repo base)
                       (tree/make-empty repo))
-          tree (reduce (partial mutate-step repo) base-tree mutations)]
-      (->> tree
+          result (reduce mutate-step
+                         (TransactionContext. repo base-tree {})
+                         mutations)]
+      (->> (:tree result)
            (commit! repo info (if base [base] []))
            (update-reference! repo info)))))
 
