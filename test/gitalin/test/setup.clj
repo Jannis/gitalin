@@ -5,7 +5,6 @@
             [clojure.test.check.properties :as prop]
             [me.raynes.fs :as fs]
             [gitalin.git.repo :as repo]
-            [gitalin.adapter :as a]
             [gitalin.core :as c]))
 
 ;;;; Misc helpers
@@ -31,7 +30,7 @@
 
 (defn init-store [dir]
   (let [path (.getAbsolutePath dir)]
-    (a/adapter (c/create-store! path))))
+    (c/default-adapter (c/create-store! path))))
 
 (def gen-store
   (gen/fmap init-store gen-temp-dir))

@@ -1,6 +1,7 @@
 (ns gitalin.core
   (:require [gitalin.git.reference :as reference]
             [gitalin.git.repo :as git-repo]
+            [gitalin.adapter :as a]
             [gitalin.protocols :as p]
             [gitalin.query :as query]))
 
@@ -21,6 +22,9 @@
 
 (defn connection? [conn]
   (instance? Connection conn))
+
+(defn default-adapter [path]
+  (a/adapter path))
 
 ;;;; Store creation
 

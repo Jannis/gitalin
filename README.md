@@ -58,70 +58,79 @@ Start a REPL:
 
 ```
 boot repl
-boot.user=> (gitalin.core/create-store! "/tmp/test-store")
-boot.user=> (def store (gitalin.adapter/adapter "/tmp/test/store"))
-boot.user=> (def conn (gitalin.core/connect store))
+```
+
+Create a store and connect to it:
+
+```
+(use '[gitalin.core :as g])
+
+(g/create-store! "/tmp/test-store")
+
+(def store (g/default-adapter "/tmp/test/store"))
+(def conn (g/connect store))
 ```
 
 Now you are ready to create objects using transactions:
 
 ```
-boot.user=> (def id (gitalin.core/tempid))
-boot.user=>
-boot.user=> (gitalin.core/transact! conn
-boot.user=>   {:target "HEAD"
-boot.user=>    :author {:name "Your Name" :email "your@email.org"}
-boot.user=>    :committer {:name "Your Name" :email "your@email.org"}
-boot.user=>    :message "Create John"}
-boot.user=>   [[:object/add "person" id :person/name "John"]
-boot.user=>    [:object/update id :person/email "john@email.org"]])
+(def id (g/tempid))
+
+(g/transact! conn
+             {:target "HEAD"
+              :author {:name "Your Name" :email "your@email.org"}
+              :committer {:name "Your Name" :email "your@email.org"}
+              :message "Create John"}
+             [[:object/add "person" id :person/name "John"]
+              [:object/update id :person/email "john@email.org"]])
 ```
 
 You can also query references, commits, classes and objects using
 the query interface:
 
 ```
-boot.user=> (gitalin.core/q conn
-boot.user=>   {:find [?n ?e]
-boot.user=>    :where [[?ref :ref/name "HEAD"]
-boot.user=>            [?ref :ref/commit ?commit]
-boot.user=>            [?commit :commit/class ?class]
-boot.user=>            [?class :class/object ?o]
-boot.user=>            [?o :person/name ?n]
-boot.user=>            [?o :person/email ?e]]})
-#{["John" "john@email.org"]}
+(g/q conn {:find [?n ?e]
+           :where [[?ref :ref/name "HEAD"]
+                   [?ref :ref/commit ?commit]
+                   [?commit :commit/class ?class]
+                   [?class :class/object ?o]
+                   [?o :person/name ?n]
+                   [?o :person/email ?e]]})
+
+-> #{["John" "john@email.org"]}
 ```
 
 You already know which commit `HEAD` is on and you only want
 Clarice's email address? Even better:
 
 ```
-boot.user=> (gitalin.core/q conn
-boot.user=>   {:find ?e
-boot.user=>    :in [?commit ?name]
-boot.user=>    :where [[?commit :commit/class ?class]
-boot.user=>            [?class :class/name "person"]
-boot.user=>            [?class :class/object ?o]
-boot.user=>            [?o :person/name ?name]
-boot.user=>            [?o :person/email ?e]]}
-boot.user=>   "commit/09a9202377d81198d409391ca54376d9c3eaadf2"
-boot.user=>   "Clarice")
-#{"clarice@her-domain.com"}
+(g/q conn
+     {:find ?e
+      :in [?commit ?name]
+      :where [[?commit :commit/class ?class]
+              [?class :class/name "person"]
+              [?class :class/object ?o]
+              [?o :person/name ?name]
+              [?o :person/email ?e]]}
+     "commit/09a9202377d81198d409391ca54376d9c3eaadf2"
+     "Clarice")
+
+-> #{"clarice@her-domain.com"}
 ```
 
 You want to know the IDs of all objects in the second most recent
 transaction in `HEAD`?
 
 ```
-boot.user=> (gitalin.core/q conn
-boot.user=>   {:find ?o
-boot.user=>    :where [[?ref :ref/name "HEAD"]
-boot.user=>            [?ref :ref/commit ?commit]
-boot.user=>            [?commit :commit/parent ?parent]
-boot.user=>            [?parent :commit/class ?class]
-boot.user=>            [?class :class/object ?o]]})
-#{"object/09a9202377d81198d409391ca54376d9c3eaadf2/person/5de37b78-bcb7-482f-bff9-d8dd113a8583"
-  "object/09a9202377d81198d409391ca54376d9c3eaadf2/post/d91b867e-1ba0-449b-a106-3489927b6803"}
+(g/q conn {:find ?o
+           :where [[?ref :ref/name "HEAD"]
+                   [?ref :ref/commit ?commit]
+                   [?commit :commit/parent ?parent]
+                   [?parent :commit/class ?class]
+                   [?class :class/object ?o]]})
+
+-> #{"object/09a9202377d81198d409391ca54376d9c3eaadf2/person/5de37b78-bcb7-482f-bff9-d8dd113a8583"
+     "object/09a9202377d81198d409391ca54376d9c3eaadf2/post/d91b867e-1ba0-449b-a106-3489927b6803"}
 ```
 
 There are various ways on how to improve and shorten queries.
