@@ -64,62 +64,80 @@
 
 ;;;; Generate transactions
 
+(def gen-transaction-info-HEAD
+  (gen/hash-map
+   :target (gen/return "HEAD")
+   :author (gen/hash-map :name gen/string-alphanumeric
+                         :email gen/string-alphanumeric)
+   :committer (gen/hash-map :name gen/string-alphanumeric
+                            :email gen/string-alphanumeric)
+   :message gen/string))
+
+(def gen-add-mutations
+  (gen/vector-distinct
+   (gen/fmap vec
+             (gen/tuple (gen/return :object/add)
+                        (gen/fmap str gen/uuid)
+                        gen/keyword
+                        gen/any))))
+
 (def gen-add-transactions
   (gen/vector-distinct
-   (gen/hash-map
-    :info (gen/hash-map
-           :target (gen/return "HEAD")
-           :author (gen/hash-map
-                    :name gen/string-alphanumeric
-                    :email gen/string-alphanumeric)
-           :committer (gen/hash-map
-                       :name gen/string-alphanumeric
-                       :email gen/string-alphanumeric)
-           :message gen/string)
-    :data (gen/vector-distinct
-           (gen/fmap
-            vec
-            (gen/tuple (gen/return :object/add)
-                       (gen/fmap str gen/uuid)
-                       gen/keyword
-                       gen/any))))))
+   (gen/hash-map :info gen-transaction-info-HEAD
+                 :data gen-add-mutations)))
+
+(def gen-tempid
+  (gen/fmap (fn [_] (a/tempid)) gen/int))
+
+(def gen-add-tempid-mutations
+  (gen/vector-distinct
+   (gen/fmap vec
+             (gen/tuple (gen/return :object/add)
+                        gen-tempid
+                        gen/keyword
+                        gen/any))))
 
 (def gen-tempid-add-transactions
   (gen/vector-distinct
-   (gen/hash-map
-    :info (gen/hash-map
-           :target (gen/return "HEAD")
-           :author (gen/hash-map
-                    :name gen/string-alphanumeric
-                    :email gen/string-alphanumeric)
-           :committer (gen/hash-map
-                       :name gen/string-alphanumeric
-                       :email gen/string-alphanumeric)
-           :message gen/string)
-    :data (gen/vector-distinct
-           (gen/fmap
-            vec
-            (gen/tuple (gen/return :object/add)
-                       (gen/fmap (fn [_] (a/tempid)) gen/int)
-                       gen/keyword
-                       gen/any))))))
+   (gen/hash-map :info gen-transaction-info-HEAD
+                 :data gen-add-tempid-mutations)))
 
-(def gen-add-and-update-transactions
-  (gen/vector-distinct
-   (gen/hash-map
-    :info (gen/hash-map
-           :target (gen/return "HEAD")
-           :author (gen/hash-map
-                    :name gen/string-alphanumeric
-                    :email gen/string-alphanumeric)
-           :committer (gen/hash-map
-                       :name gen/string-alphanumeric
-                       :email gen/string-alphanumeric)
-           :message gen/string)
-    :data (gen/vector-distinct
-           (gen/fmap
-            vec
+(defn gen-add-mutation-for-uuid [uuid]
+  (gen/fmap vec
             (gen/tuple (gen/return :object/add)
-                       (gen/fmap str gen/uuid)
+                       (gen/return uuid)
                        gen/keyword
-                       gen/any))))))
+                       gen/any)))
+
+(defn gen-set-mutation-for-uuid [uuid]
+  (gen/fmap vec
+            (gen/tuple (gen/return :object/set)
+                       (gen/return uuid)
+                       gen/keyword
+                       gen/any)))
+
+(defn gen-set-mutations-for-uuid [uuid]
+  (gen/vector
+   (gen/bind (gen/return uuid)
+             gen-set-mutation-for-uuid)))
+
+(defn gen-add-set-mutations-for-uuid [uuid]
+  (gen/fmap (fn [[add sets]]
+              (into [] (concat [add] sets)))
+            (gen/tuple
+             (gen/bind (gen/return uuid)
+                       gen-add-mutation-for-uuid)
+             (gen/bind (gen/return uuid)
+                       gen-set-mutations-for-uuid))))
+
+(def gen-add-set-mutations
+  (gen/fmap (fn [mutation-groups]
+              (into [] (apply concat mutation-groups)))
+            (gen/vector-distinct
+             (gen/bind gen-tempid
+                       gen-add-set-mutations-for-uuid))))
+
+(def gen-add-set-transactions
+  (gen/vector-distinct
+   (gen/hash-map :info gen-transaction-info-HEAD
+                 :data gen-add-set-mutations)))

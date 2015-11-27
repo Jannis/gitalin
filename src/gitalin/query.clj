@@ -157,9 +157,12 @@
 
 (defn has-property? [entity property]
   {:pre [(satisfies? p/IEntity entity)
-         (constant? property)]}
-  (let [props (p/properties entity)]
-    (not (empty? (filter #(= (:value property) (first %)) props)))))
+         (or (variable? property)
+             (constant? property))]}
+  (or (variable? property)
+      (let [props (p/properties entity)]
+        (not (empty? (filter #(= (:value property) (first %))
+                             props))))))
 
 (defn gather-property-value
   [context entity prop]
@@ -169,32 +172,48 @@
          (keyword? (first prop))]}
   (BindingValue. (second prop) entity))
 
-(defn gather-entity-values [context entity property]
+(defn gather-entity-values [context entity properties]
   {:pre [(instance? Context context)
-         (satisfies? p/IEntity entity)
-         (constant? property)]}
+         (satisfies? p/IEntity entity)]}
   (let [props (p/properties entity)
-        props (filter #(= (:value property) (first %)) props)]
+        props (let [possible-props (map :value properties)]
+                (filter #(some #{(first %)} possible-props) props))]
     (mapv #(gather-property-value context entity %) props)))
 
-(defn gather-values [context entities property]
+(defn gather-values [context entities prop-or-props]
   {:pre [(instance? Context context)
          (vector? entities)
-         (every? #(satisfies? p/IEntity %) entities)
-         (constant? property)]}
+         (every? #(satisfies? p/IEntity %) entities)]}
   (into []
         (apply concat
-               (mapv #(gather-entity-values context % property)
+               (mapv #(gather-entity-values context % prop-or-props)
                      entities))))
 
-(defn has-property-value? [entity property values]
+(defn has-property-value? [entity properties values]
   {:pre [(satisfies? p/IEntity entity)
-         (constant? property)]}
-  (some (fn [[prop val]]
-          (and (= prop (:value property))
-               (or (= val values)
-                   (some #{val} (map :value values)))))
-        (p/properties entity)))
+         (every? #(instance? BindingValue %) properties)
+         (every? #(instance? BindingValue %) values)]}
+  (let [possible-props (map :value properties)
+        possible-values (map :value values)]
+    (some (fn [[prop val]]
+            (and (some #{prop} possible-props)
+                 (some #{val} possible-values)))
+          (p/properties entity))))
+
+(defn gather-entity-properties [context entity]
+  {:pre [(instance? Context context)
+         (satisfies? p/IEntity entity)]}
+  (let [props (p/properties entity)]
+    (mapv #(BindingValue. (first %) entity) props)))
+
+(defn gather-properties [context entities]
+  {:pre [(instance? Context context)
+         (vector? entities)
+         (every? #(satisfies? p/IEntity %) entities)]}
+  (into []
+        (apply concat
+               (mapv #(gather-entity-properties context %)
+                     entities))))
 
 (defn update-dependency [new-entities context dep]
   (debug context "PATTERN update dependency" (:symbol dep))
@@ -204,8 +223,10 @@
   (if (var-bound? context dep)
     (let [values (get-binding context dep)
           values-for-entities (filterv (fn [value]
-                                         (some #{(:source-entity value)}
-                                               new-entities))
+                                         (or (nil? (:source-entity value))
+                                             (some
+                                              #{(:source-entity value)}
+                                              new-entities)))
                                        values)]
       (debug context "PATTERN new values:")
       (debug-pprint context values-for-entities)
@@ -234,53 +255,90 @@
             (update-dependencies new-entities deps))))
     context))
 
+(defn resolve-id [context id load-one-fn load-all-fn]
+  {:pre [(instance? Context context)
+         (or (constant? id)
+             (variable? id))]}
+  (debug context "PATTERN id" (element-str id))
+  (debug context "PATTERN id bound?"
+         (and (variable? id)
+              (var-bound? context id)))
+  (debug context "PATTERN id value"
+         (when (variable? id)
+           (get-values context id)))
+  (let [adapter (p/adapter (:conn context))]
+    (if (variable? id)
+      (if (var-bound? context id)
+        (->> (get-values context id)
+             (mapv #(load-one-fn adapter %)))
+        (load-all-fn adapter))
+      [(load-one-fn adapter (:value id))])))
+
+(defn resolve-properties [context property entities]
+  {:pre [(instance? Context context)
+         (or (constant? property)
+             (variable? property))]}
+  (debug context "PATTERN property" property)
+  (debug context "PATTERN property bound?"
+         (and (variable? property)
+              (var-bound? context property)))
+  ;; (debug context "PATTERN bindings:")
+  ;; (debug-pprint context (:bindings context))
+  (if (variable? property)
+    (if (var-bound? context property)
+      (get-binding context property)
+      (gather-properties context entities))
+    [(BindingValue. (:value property) nil)]))
+
+(defn resolve-values [context value properties entities]
+  {:pre [(instance? Context context)
+         (or (constant? value)
+             (variable? value))
+         (every? #(instance? BindingValue %) properties)]}
+  (debug context "PATTERN value" value)
+  (debug context "PATTERN value var bound?"
+         (and (variable? value)
+              (var-bound? context value)))
+  ;; (debug context "PATTERN bindings:")
+  ;; (debug-pprint context (:bindings context))
+  (if (variable? value)
+    (if (var-bound? context value)
+      (get-binding context value)
+      (gather-values context entities properties))
+    [(BindingValue. (:value value) nil)]))
+
 (defn process-pattern*
   [context pattern load-one-fn load-all-fn]
+  (debug context "-------")
   (debug context "PATTERN" (pattern-str pattern))
+  (debug context "-------")
   (let [[id property value] (:elements pattern)
         adapter (p/adapter (:conn context))
         ;; Resolve id (var or constant) into entities
-        _ (debug context "PATTERN id" (element-str id))
-        _ (debug context "PATTERN id bound?"
-                 (and (variable? id)
-                      (var-bound? context id)))
-        _ (debug context "PATTERN id value"
-                 (when (variable? id)
-                   (get-values context id)))
-        entities (if (variable? id)
-                   (if (var-bound? context id)
-                     (->> (get-values context id)
-                          (mapv #(load-one-fn adapter %)))
-                     (load-all-fn adapter))
-                   [(load-one-fn adapter (:value id))])
+        entities (resolve-id context id load-one-fn load-all-fn)
         _ (debug context "PATTERN entities")
         _ (debug-pprint context entities)
-        ;; Drop entities that don't have the property
+        ;; Drop entities that don't have the property (var or constant)
         entities (filterv #(has-property? % property) entities)
         _ (debug context "PATTERN entities with" (element-str property))
         _ (debug-pprint context entities)
+        ;; Gather allowed properties
+        properties (resolve-properties context property entities)
+        _ (debug context "PATTERN properties")
+        _ (debug-pprint context properties)
         ;; Gather allowed values
-        _ (debug context "PATTERN value" value)
-        _ (debug context "PATTERN value var bound?"
-                 (and (variable? value)
-                      (var-bound? context value)))
-        _ (debug context "PATTERN bindings:")
-        _ (debug-pprint context (:bindings context))
-        values (if (variable? value)
-                 (if (var-bound? context value)
-                   (get-binding context value)
-                   (gather-values context entities property))
-                 [(BindingValue. (:value value) nil)])
+        values (resolve-values context value properties entities)
         _ (debug context "PATTERN values")
         _ (debug-pprint context values)
         ;; Drop entities that don't match the allowed values
-        entities (filterv #(has-property-value? % property values)
+        entities (filterv #(has-property-value? % properties values)
                           entities)
         _ (debug context "PATTERN entities with matching properties")
         _ (debug-pprint context entities)
         entity-values (mapv #(BindingValue. (:id %) %) entities)]
     (-> context
         (maybe-update-binding id entity-values)
+        (maybe-update-binding property properties)
         (maybe-update-binding value values))))
 
 (defmulti process-pattern dispatch-on-property-base)

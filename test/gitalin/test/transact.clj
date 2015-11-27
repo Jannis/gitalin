@@ -140,3 +140,76 @@
       (is (not-any? #(a/tempid? %)
                     (c/q conn '{:find ?u
                                 :where [[?o :object/uuid ?u]]}))))))
+
+(defspec temporary-ids-are-translated-to-real-ones 10
+  (prop/for-all [store setup/gen-store
+                 txs setup/gen-tempid-add-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} txs]
+        (c/transact! conn info data))
+      (is (not-any? #(a/tempid? %)
+                    (c/q conn '{:find ?u
+                                :where [[?o :object/uuid ?u]]}))))))
+
+(defspec sets-after-additions-change-objects-as-expected 10
+  (prop/for-all [store setup/gen-store
+                 txs setup/gen-add-set-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} txs]
+        (c/transact! conn info data))
+      (let [mutations (->> txs
+                           (map :data)
+                           (apply concat))
+            mutations-by-uuid (group-by second mutations)
+            props-by-uuid (->> mutations-by-uuid
+                               (map (fn [[uuid mutations]]
+                                      [uuid (mapv #(subvec % 2 4)
+                                                  mutations)]))
+                               (map (fn [[uuid props]]
+                                      [uuid (group-by first
+                                                      props)])))
+            last-prop-vals (map (fn [[uuid prop-map]]
+                                  [(cond-> uuid (a/tempid? uuid) :uuid)
+                                   (into #{}
+                                         (map (fn [[prop vals]]
+                                                [prop (second
+                                                       (last vals))]))
+                                         prop-map)])
+                                props-by-uuid)
+            expected-prop-vals (into {} last-prop-vals)
+            expected-uuids (into #{}
+                                (map #(cond-> % (a/tempid? %) :uuid))
+                                (keys mutations-by-uuid))
+            actual-prop-vals (map #(vector
+                                    %
+                                    (c/q conn
+                                         '{:find [?p ?v]
+                                           :in ?u
+                                           :where
+                                           [[?ref :ref/name "HEAD"]
+                                            [?ref :ref/commit ?c]
+                                            [?c :commit/object ?o]
+                                            [?o :object/uuid ?u]
+                                            [?o ?p ?v]]}
+                                         %))
+                                  expected-uuids)
+            actual-prop-vals (into {}
+                                   (map (fn [[uuid props]]
+                                          [uuid
+                                           (into
+                                            #{}
+                                            (filter
+                                             #(condp = (first %)
+                                                :object/uuid false
+                                                :object/commit false
+                                                %)
+                                             props))]))
+                                   actual-prop-vals)]
+        (and (is (= expected-uuids
+                    (c/q conn '{:find ?u
+                                :where [[?ref :ref/name "HEAD"]
+                                        [?ref :ref/commit ?commit]
+                                        [?commit :commit/object ?o]
+                                        [?o :object/uuid ?u]]})))
+             (is (= expected-prop-vals
+                    actual-prop-vals)))))))
