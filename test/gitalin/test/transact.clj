@@ -158,3 +158,12 @@
                                         [?o :object/class ?c]
                                         [?o :object/uuid ?u]]}))))))))
 
+(defspec temporary-ids-are-translated-to-real-ones 10
+  (prop/for-all [store setup/gen-store
+                 txs setup/gen-tempid-add-transactions]
+    (with-conn (assoc (c/connect store) :debug false)
+      (doseq [{:keys [info data]} txs]
+        (c/transact! conn info data))
+      (is (not-any? #(a/tempid? %)
+                    (c/q conn '{:find ?u
+                                :where [[?o :object/uuid ?u]]}))))))

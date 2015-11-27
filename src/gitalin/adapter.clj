@@ -19,7 +19,7 @@
 (defrecord TempId [uuid])
 
 (defn tempid []
-  (TempId. (java.util.UUID/randomUUID)))
+  (TempId. (str (java.util.UUID/randomUUID))))
 
 (defn tempid? [id]
   (instance? TempId id))
@@ -35,8 +35,8 @@
 (defmethod mutate-step :object/add
   [context [_ class uuid property value]]
   (let [repo (:repo context)
-        tree (or (tree/get-tree repo (:tree context) class)
-                 (tree/make-empty repo))
+        class-tree (or (tree/get-tree repo (:tree context) class)
+                       (tree/make-empty repo))
         real-uuid (if (tempid? uuid)
                     (:uuid uuid)
                     uuid)
@@ -47,7 +47,7 @@
         blob (objects/make-blob repo object)
         entry (objects/to-tree-entry object blob)
         new-tree (->> entry
-                      (tree/update-entry repo tree)
+                      (tree/update-entry repo class-tree)
                       (tree/to-tree-entry class)
                       (tree/update-entry repo (:tree context)))]
     (-> context
