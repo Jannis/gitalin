@@ -16,7 +16,7 @@
 
 (defspec querying-refs-after-empty-transactions-returns-nothing 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -36,7 +36,7 @@
 
 (defspec ref-names-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -47,7 +47,7 @@
 
 (defspec ref-ids-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -58,7 +58,7 @@
 
 (defspec ref-types-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -69,7 +69,7 @@
 
 (defspec ref-commits-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -87,7 +87,7 @@
 
 (defspec multiple-refs-properties-can-be-queried-at-once 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -101,7 +101,7 @@
 
 (defspec ref-names-can-be-parameterized 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
                 (with-conn (assoc (c/connect store) :debug false)
                   (doseq [{:keys [info data]} transactions]
                     (c/transact! conn info data))
@@ -114,7 +114,7 @@
 
 (defspec ref-ids-can-be-parameterized 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -127,7 +127,7 @@
 
 (defspec ref-types-can-be-parameterized 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -142,7 +142,7 @@
 
 (defspec querying-commits-after-empty-transactions-returns-nothing 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -174,7 +174,7 @@
 
 (defspec commit-sha1s-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -187,7 +187,7 @@
 
 (defspec commit-authors-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -205,7 +205,7 @@
 
 (defspec commit-committers-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -224,7 +224,7 @@
 
 (defspec commit-messages-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -241,7 +241,7 @@
 
 (defspec commit-parents-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -256,7 +256,7 @@
 
 (defspec commit-parents-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -276,7 +276,7 @@
 
 (defspec querying-classes-after-empty-transactions-returns-nothing 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -296,7 +296,7 @@
 
 (defspec class-names-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -312,7 +312,7 @@
 
 (defspec class-commits-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -330,7 +330,7 @@
 
 (defspec class-objects-can-be-queried 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))

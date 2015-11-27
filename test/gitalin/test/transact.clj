@@ -13,7 +13,7 @@
 
 (defspec as-many-commits-created-as-transactions 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -24,7 +24,7 @@
 
 (defspec each-commit-correspond-to-one-transaction 10
   (prop/for-all [store setup/gen-store
-                 transactions setup/gen-transactions]
+                 transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
@@ -34,7 +34,7 @@
 
 (defspec transactions-update-HEAD 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (every? true?
        (for [{:keys [info data]} txs]
@@ -49,7 +49,7 @@
 
 (defspec transactions-update-master 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (every? true?
        (for [{:keys [info data]} txs]
@@ -64,7 +64,7 @@
 
 (defspec HEAD-and-master-point-to-the-same-commit 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (every? true?
        (for [{:keys [info data]} txs]
@@ -91,7 +91,7 @@
 
 (defspec adding-objects-creates-classes 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
@@ -110,7 +110,7 @@
 
 (defspec each-created-object-exists-in-the-corresponding-transaction 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
@@ -137,7 +137,7 @@
 
 (defspec all-created-objects-are-still-present-at-the-end 10
   (prop/for-all [store setup/gen-store
-                 txs setup/gen-transactions]
+                 txs setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
