@@ -8,7 +8,6 @@
             [gitalin.git.repo :as r]
             [gitalin.git.reference :as reference]
             [gitalin.git.tree :as tree]
-            [gitalin.classes :as classes]
             [gitalin.objects :as objects]
             [gitalin.protocols :as p]))
 
@@ -293,10 +292,6 @@
 (defmethod process-pattern :commit
   [context pattern]
   (process-pattern* context pattern p/commit p/commits))
-
-(defmethod process-pattern :class
-  [context pattern]
-  (process-pattern* context pattern p/class p/classes))
 
 (defn process-object-pattern
   [context pattern]

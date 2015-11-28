@@ -6,34 +6,33 @@
             [gitalin.git.blob :as blob]
             [gitalin.git.commit :as commit]
             [gitalin.git.tree :as git-tree]
-            [gitalin.classes :as classes]
             [gitalin.transit :refer [transit-read transit-write]]))
 
-(defrecord GitalinObject [uuid class properties])
+(defrecord GitalinObject [uuid properties])
 
-(defn load-from-entry [repo class entry]
+(defn load-from-entry [repo entry]
   (let [uuid  (:name entry)
         oid   (to-oid repo (:sha1 entry))
         blob  (blob/load repo oid)
         props (transit-read (:data blob))]
-    (->GitalinObject uuid (:name class) props)))
+    (->GitalinObject uuid props)))
 
-(defn load-all [repo tree class]
-  (some->> (classes/tree repo tree class)
+(defn load-all [repo tree]
+  (some->> tree
            :entries
            (filter #(= :file (:type %)))
-           (map (partial load-from-entry repo class))))
+           (map #(load-from-entry repo %))))
 
-(defn load [repo tree class uuid]
-  (some->> (classes/tree repo tree class)
+(defn load [repo tree uuid]
+  (some->> tree
            :entries
            (filter #(= :file (:type %)))
            (filter #(= uuid (:name %)))
            (first)
-           (load-from-entry repo class)))
+           (load-from-entry repo)))
 
-(defn make [uuid class properties]
-  (->GitalinObject uuid class properties))
+(defn make [uuid properties]
+  (->GitalinObject uuid properties))
 
 (defn make-blob [repo object]
   (blob/write repo (-> (:properties object)

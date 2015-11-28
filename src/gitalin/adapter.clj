@@ -6,12 +6,10 @@
             [gitalin.git.repo :as git-repo]
             [gitalin.git.reference :as reference]
             [gitalin.git.tree :as tree]
-            [gitalin.classes :as classes]
             [gitalin.objects :as objects]
             [gitalin.protocols :as p])
   (:import (gitalin.git.commit Commit)
            (gitalin.git.reference Reference)
-           (gitalin.classes GitalinClass)
            (gitalin.objects GitalinObject)))
 
 ;;;; Temporary IDs
@@ -33,23 +31,19 @@
 (defmulti mutate-step (fn [_ mutation] (first mutation)))
 
 (defmethod mutate-step :object/add
-  [context [_ class uuid property value]]
+  [context [_ uuid property value]]
   (let [repo (:repo context)
-        class-tree (or (tree/get-tree repo (:tree context) class)
-                       (tree/make-empty repo))
+        tree (:tree context)
         real-uuid (if (tempid? uuid)
                     (:uuid uuid)
                     uuid)
         new-tempids (if (tempid? uuid)
                       (assoc (:tempids context) uuid real-uuid)
                       (:tempids context))
-        object (objects/make real-uuid class {property value})
+        object (objects/make real-uuid {property value})
         blob (objects/make-blob repo object)
         entry (objects/to-tree-entry object blob)
-        new-tree (->> entry
-                      (tree/update-entry repo class-tree)
-                      (tree/to-tree-entry class)
-                      (tree/update-entry repo (:tree context)))]
+        new-tree (tree/update-entry repo (:tree context) entry)]
     (-> context
         (assoc :tree new-tree)
         (assoc :tempids new-tempids))))
@@ -76,12 +70,8 @@
     (instance? Commit obj)
     (str "commit/" (:sha1 obj))
 
-    (instance? GitalinClass obj)
-    (str "class/" (-> obj meta :commit :sha1) "/" (:name obj))
-
     (instance? GitalinObject obj)
     (str "object/" (-> obj meta :commit :sha1)
-         "/" (:class obj)
          "/" (:uuid obj))
 
     :else
@@ -98,19 +88,11 @@
       (let [[_ sha1] segments]
         (commit/load repo (to-oid repo sha1)))
 
-      "class"
-      (let [[_ sha1 name] segments
-            commit' (commit/load repo (to-oid repo sha1))
-            tree (commit/tree repo commit')
-            class (classes/load repo tree name)]
-        (vary-meta class assoc :commit commit'))
-
       "object"
-      (let [[_ sha1 class-name uuid] segments
+      (let [[_ sha1 uuid] segments
             commit' (commit/load repo (to-oid repo sha1))
             tree (commit/tree repo commit')
-            class (classes/load repo tree class-name)
-            object (objects/load repo tree class uuid)]
+            object (objects/load repo tree uuid)]
         (vary-meta object assoc :commit commit'))
 
       :else
@@ -140,7 +122,7 @@
                          (map #(to-oid repo %))
                          (map #(commit/load repo %))
                          (mapv obj->id))
-        classes (some->> (classes/load-all repo tree)
+        objects (some->> (objects/load-all repo tree)
                          (map #(vary-meta % assoc :commit com))
                          (map obj->id))
         props [[:commit/sha1 (:sha1 com)]
@@ -151,27 +133,11 @@
              (finalize-props
               (concat props
                       (mapv #(vector :commit/parent %) parents)
-                      (mapv #(vector :commit/class %) classes))))))
-
-(defn class->entity [repo class]
-  (let [com (:commit (meta class))
-        tree (commit/tree repo com)
-        objects (some->> (:objects class)
-                         (map :uuid)
-                         (map #(objects/load repo tree class %))
-                         (map #(vary-meta % assoc :commit com))
-                         (map obj->id))
-        props [[:class/name (:name class)]
-               [:class/commit (obj->id com)]]]
-    (Entity. (obj->id class)
-             (finalize-props
-              (concat props
-                      (mapv #(vector :class/object %) objects))))))
+                      (mapv #(vector :commit/object %) objects))))))
 
 (defn object->entity [repo object]
   (let [com (:commit (meta object))
         props [[:object/uuid (:uuid object)]
-               [:object/class (:class object)]
                [:object/commit (obj->id com)]]]
     (Entity. (obj->id object)
              (finalize-props
@@ -191,20 +157,12 @@
                       (collect-commits repo)))
                (:parents commit)))))
 
-(defn collect-classes [repo commit']
+(defn collect-objects [repo commit']
   (let [tree (commit/tree repo commit')]
-    (map (fn [class]
-           (-> class
-               (vary-meta assoc :commit commit')
-               (vary-meta assoc :tree tree)))
-         (classes/load-all repo tree))))
-
-(defn collect-objects [repo class]
-  (let [{:keys [commit tree]} (meta class)]
     (map (fn [object]
            (-> object
-               (vary-meta assoc :commit commit)))
-         (objects/load-all repo tree class))))
+               (vary-meta assoc :commit commit')))
+         (objects/load-all repo tree))))
 
 (defn load-all-references [repo]
   (reference/load-all repo))
@@ -216,14 +174,8 @@
        (apply concat)
        (set)))
 
-(defn load-all-classes [repo]
-  (->> (load-all-commits repo)
-       (map #(collect-classes repo %))
-       (apply concat)
-       (set)))
-
 (defn load-all-objects [repo]
-  (->> (load-all-classes repo)
+  (->> (load-all-commits repo)
        (map #(collect-objects repo %))
        (apply concat)
        (set)))
@@ -255,15 +207,6 @@
     (->> (load-all-commits repo)
          (map #(commit->entity repo %))
          (set)))
-
-  (classes [this]
-    (->> (load-all-classes repo)
-         (map #(class->entity repo %))
-         (set)))
-
-  (class [this id]
-    (->> (id->obj repo id)
-         (class->entity repo)))
 
   (objects [this]
     (->> (load-all-objects repo)

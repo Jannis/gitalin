@@ -89,25 +89,6 @@
        (map #(filter object-add? %))
        (apply concat)))
 
-(defspec adding-objects-creates-classes 10
-  (prop/for-all [store setup/gen-store
-                 txs setup/gen-add-transactions]
-    (with-conn (assoc (c/connect store) :debug false)
-      (doseq [{:keys [info data]} txs]
-        (c/transact! conn info data))
-      (let [additions (get-object-additions txs)
-            class-names (map second additions)]
-         (is (= (set class-names)
-                (c/q conn '{:find ?name
-                            :where
-                            [[?ref :ref/name "HEAD"]
-                             [?ref :ref/commit ?c]
-                             [?c :commit/class ?class]
-                             [?class :class/name ?name]]})))))))
-
-(defn var-from-index [i]
-  (symbol (str "?v" i)))
-
 (defspec each-created-object-exists-in-the-corresponding-transaction 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-add-transactions]
@@ -115,25 +96,24 @@
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
       (let [additions (get-object-additions txs) 
-            data (map (fn [[_ class uuid prop val]]
-                        [class uuid prop val])
+            data (map (fn [[_ uuid prop val]]
+                        [uuid prop val])
                       additions)
-            classes-uuids-and-values (map (fn [[class uuid _ val]]
-                                            [class uuid val])
-                                          data)]
-        (is (= (into #{} classes-uuids-and-values)
-               (into #{}
-                (apply concat
-                 (for [d data]
-                   (let [[_ _ prop _] d]
-                     (c/q conn `{:find [?c ?u ?v]
-                                 :where [[?ref :ref/name "HEAD"]
-                                         [?ref :ref/commit ?commit]
-                                         [?commit :commit/class ?class]
-                                         [?class :class/object ?o]
-                                         [?o :object/class ?c]
-                                         [?o :object/uuid ?u]
-                                         [?o ~prop ?v]]})))))))))))
+            uuids-and-values (map (fn [[uuid _ val]]
+                                    [uuid val])
+                                  data)
+            result (apply concat
+                          (for [d data]
+                            (let [[_ prop _] d]
+                              (c/q conn
+                                   `{:find [?u ?v]
+                                     :where [[?ref :ref/name "HEAD"]
+                                             [?ref :ref/commit ?commit]
+                                             [?commit :commit/object ?o]
+                                             [?o :object/uuid ?u]
+                                             [?o ~prop ?v]]}))))]
+        (is (= (into #{} uuids-and-values)
+               (into #{} result)))))))
 
 (defspec all-created-objects-are-still-present-at-the-end 10
   (prop/for-all [store setup/gen-store
@@ -141,21 +121,14 @@
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
-      (let [additions (get-object-additions txs) 
-            data (map (fn [[_ class uuid prop]]
-                        [class uuid prop])
-                      additions)
-            classes-and-uuids (map (fn [[class uuid _]]
-                                     [class uuid])
-                                   data)]
-        (is (= (into #{} classes-and-uuids)
+      (let [uuids (->> (get-object-additions txs)
+                       (map (fn [[_ uuid _]] uuid)))]
+        (is (= (into #{} uuids)
                (into #{} (c/q conn
-                              '{:find [?c ?u]
+                              '{:find ?u
                                 :where [[?ref :ref/name "HEAD"]
                                         [?ref :ref/commit ?commit]
-                                        [?commit :commit/class ?class]
-                                        [?class :class/object ?o]
-                                        [?o :object/class ?c]
+                                        [?commit :commit/object ?o]
                                         [?o :object/uuid ?u]]}))))))))
 
 (defspec temporary-ids-are-translated-to-real-ones 10

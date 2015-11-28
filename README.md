@@ -8,7 +8,6 @@ is simple: there are
 
 * references (branches and tags),
 * commits (= transactions),
-* classes (groups of objects),
 * objects (entities with (almost) arbitrary properties).
 
 All of the above can be queried using a language similar to Datalog
@@ -31,7 +30,6 @@ Other notable characteristics include:
 * TODO: Update/remove mutations.
 * TODO: Temporary IDs.
 * TODO: Direct entity access - what format to return?
-* TODO: Consider dropping classes as a first-class concept.
 * TODO: Allow multiple connections to be used in a single query and
 * TODO: Functions, not just pattern clauses.
 * TODO: Tagging.
@@ -76,26 +74,26 @@ Now you are ready to create objects using transactions:
 ```
 (def id (g/tempid))
 
-(g/transact! conn
-             {:target "HEAD"
-              :author {:name "Your Name" :email "your@email.org"}
-              :committer {:name "Your Name" :email "your@email.org"}
-              :message "Create John"}
-             [[:object/add "person" id :person/name "John"]
-              [:object/update id :person/email "john@email.org"]])
+(let [id (g/tempid)]
+  (g/transact! conn
+               {:target "HEAD"
+                :author {:name "Your Name" :email "your@email.org"}
+                :committer {:name "Your Name" :email "your@email.org"}
+                :message "Create John"}
+               [[:object/add id :person/name "John"]
+                [:object/set id :person/email "john@email.org"]]))
 ```
 
-You can also query references, commits, classes and objects using
-the query interface:
+You can also query references, commits and objects using the query
+interface:
 
 ```
-(g/q conn {:find [?n ?e]
-           :where [[?ref :ref/name "HEAD"]
-                   [?ref :ref/commit ?commit]
-                   [?commit :commit/class ?class]
-                   [?class :class/object ?o]
-                   [?o :person/name ?n]
-                   [?o :person/email ?e]]})
+(g/q conn '{:find [?n ?e]
+            :where [[?ref :ref/name "HEAD"]
+                    [?ref :ref/commit ?commit]
+                    [?commit :commit/object ?o]
+                    [?o :person/name ?n]
+                    [?o :person/email ?e]]})
 
 -> #{["John" "john@email.org"]}
 ```
@@ -105,15 +103,13 @@ Clarice's email address? Even better:
 
 ```
 (g/q conn
-     {:find ?e
-      :in [?commit ?name]
-      :where [[?commit :commit/class ?class]
-              [?class :class/name "person"]
-              [?class :class/object ?o]
-              [?o :person/name ?name]
-              [?o :person/email ?e]]}
-     "commit/09a9202377d81198d409391ca54376d9c3eaadf2"
-     "Clarice")
+     '{:find ?e
+       :in [?commit ?name]
+       :where [[?commit :commit/object ?o]
+               [?o :person/name ?name]
+               [?o :person/email ?e]]}
+      "commit/09a9202377d81198d409391ca54376d9c3eaadf2"
+      "Clarice")
 
 -> #{"clarice@her-domain.com"}
 ```
@@ -122,15 +118,25 @@ You want to know the IDs of all objects in the second most recent
 transaction in `HEAD`?
 
 ```
-(g/q conn {:find ?o
-           :where [[?ref :ref/name "HEAD"]
-                   [?ref :ref/commit ?commit]
-                   [?commit :commit/parent ?parent]
-                   [?parent :commit/class ?class]
-                   [?class :class/object ?o]]})
+(g/q conn '{:find ?o
+            :where [[?ref :ref/name "HEAD"]
+                    [?ref :ref/commit ?commit]
+                    [?commit :commit/parent ?parent]
+                    [?parent :commit/object ?o]]})
 
--> #{"object/09a9202377d81198d409391ca54376d9c3eaadf2/person/5de37b78-bcb7-482f-bff9-d8dd113a8583"
-     "object/09a9202377d81198d409391ca54376d9c3eaadf2/post/d91b867e-1ba0-449b-a106-3489927b6803"}
+-> #{"object/09a9202377d81198d409391ca54376d9c3eaadf2/5de37b78-bcb7-482f-bff9-d8dd113a8583"
+     "object/09a9202377d81198d409391ca54376d9c3eaadf2/d91b867e-1ba0-449b-a106-3489927b6803"}
+```
+
+You can also query for all objects that ever existed in the store:
+
+```
+(g/q conn '{:find ?o
+            :where [[?o :object/id ?u]]})
+
+-> #{"object/09a9202377d81198d409391ca54376d9c3eaadf2/5de37b78-bcb7-482f-bff9-d8dd113a8583"
+"object/09a9202377d81198d409391ca54376d9c3eaadf2/d91b867e-1ba0-449b-a106-3489927b6803"
+"object/c0cb7699274b80eb585062666a2922f5d4082913/e2b3e246-ac12-4d7a-82a1-349d4e8fdf89"}
 ```
 
 There are various ways on how to improve and shorten queries.

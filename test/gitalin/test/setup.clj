@@ -80,7 +80,6 @@
            (gen/fmap
             vec
             (gen/tuple (gen/return :object/add)
-                       (gen/not-empty gen/string-alphanumeric)
                        (gen/fmap str gen/uuid)
                        gen/keyword
                        gen/any))))))
@@ -101,7 +100,6 @@
            (gen/fmap
             vec
             (gen/tuple (gen/return :object/add)
-                       (gen/not-empty gen/string-alphanumeric)
                        (gen/fmap (fn [_] (a/tempid)) gen/int)
                        gen/keyword
                        gen/any))))))
@@ -122,7 +120,6 @@
            (gen/fmap
             vec
             (gen/tuple (gen/return :object/add)
-                       (gen/not-empty gen/string-alphanumeric)
                        (gen/fmap str gen/uuid)
                        gen/keyword
                        gen/any))))))

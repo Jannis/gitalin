@@ -1,5 +1,4 @@
-(ns gitalin.protocols
-  (:refer-clojure :exclude [class]))
+(ns gitalin.protocols)
 
 (defprotocol IEntity
   (id [this])
@@ -12,8 +11,6 @@
   (reference [this id])
   (commits [this])
   (commit [this id])
-  (classes [this])
-  (class [this id])
   (objects [this])
   (object [this id])
   (transact! [this info mutations]))

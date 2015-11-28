@@ -165,8 +165,8 @@
                              :where [[?commit :commit/message ?m]]})))
                (is (= #{}
                       (c/q conn
-                           '{:find ?c
-                             :where [[?commit :commit/class ?c]]})))
+                           '{:find ?o
+                             :where [[?commit :commit/object ?o]]})))
                (is (= #{}
                       (c/q conn
                            '{:find ?p
@@ -254,27 +254,22 @@
                  (is (every? #(re-matches #"commit/[0-9abcdef]{40}" %)
                              parents))))))))
 
-(defspec commit-parents-can-be-queried 10
+(defspec commit-objects-can-be-queried 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
       (or (empty? transactions)
-          (let [expected-classes (->> transactions
-                                      (map :data)
-                                      (map (fn [t] (map second t)))
-                                      (apply concat)
-                                      (into #{}))
-                classes (c/q conn
-                             '{:find ?cln
-                               :where [[?c :commit/class ?cl]
-                                       [?cl :class/name ?cln]]})]
-            (is (= expected-classes classes)))))))
+          (let [objects (c/q conn
+                             '{:find ?o
+                               :where [[?c :commit/objects ?o]]})]
+            (is (every? #(re-matches #"object/[0-9acbdef]{40}([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}){1}" %)
+                        objects)))))))
 
-;;;; Class queries
+;;;; Object queries
 
-(defspec querying-classes-after-empty-transactions-returns-nothing 10
+(defspec querying-objects-after-empty-transactions-returns-nothing 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
@@ -283,63 +278,41 @@
       (or (not (empty? transactions))
           (and (is (= #{}
                       (c/q conn
-                           '{:find ?s
-                             :where [[?class :class/name ?s]]})))
+                           '{:find ?u
+                             :where [[?object :object/uuid ?u]]})))
                (is (= #{}
                       (c/q conn
                            '{:find ?c
-                             :where [[?class :class/commit ?c]]})))
-               (is (= #{}
-                      (c/q conn
-                           '{:find ?o
-                             :where [[?class :class/object ?o]]}))))))))
+                             :where [[?o :object/commit ?c]]}))))))))
 
-(defspec class-names-can-be-queried 10
+(defspec object-uuids-can-be-queried 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
       (or (empty? transactions)
-          (let [expected-names (->> transactions
+          (let [expected-uuids (->> transactions
                                     (map :data)
                                     (map (fn [t] (map second t)))
                                     (apply concat)
                                     (into #{}))
-                names (c/q conn '{:find ?n
-                                  :where [[?c :class/name ?n]]})]
-            (is (= expected-names names)))))))
+                uuids (c/q conn '{:find ?u
+                                  :where [[?o :object/uuid ?u]]})]
+            (is (= expected-uuids uuids)))))))
 
-(defspec class-commits-can-be-queried 10
+(defspec object-commits-can-be-queried 10
   (prop/for-all [store setup/gen-store
                  transactions setup/gen-add-transactions]
     (with-conn (assoc (c/connect store) :debug false)
       (doseq [{:keys [info data]} transactions]
         (c/transact! conn info data))
       (or (empty? transactions)
-          (let [non-empty-transactions (->>
-                                        transactions
-                                        (map :data)
-                                        (map #(filter object-add? %))
-                                        (remove empty?))
-                commits (c/q conn '{:find ?c
-                                    :where [[?class :class/commit ?c]]})]
+          (let [commits (c/q conn '{:find ?c
+                                    :where [[?o :object/commit ?c]]})]
             (and (is (set? commits))
                  (is (every? #(re-matches #"commit/[0-9abcdef]{40}" %)
                              commits))))))))
 
-(defspec class-objects-can-be-queried 10
-  (prop/for-all [store setup/gen-store
-                 transactions setup/gen-add-transactions]
-    (with-conn (assoc (c/connect store) :debug false)
-      (doseq [{:keys [info data]} transactions]
-        (c/transact! conn info data))
-      (or (empty? transactions)
-          (let [objects (c/q conn '{:find ?o
-                                    :where [[?class :class/object ?o]]})]
-            (and (is (set? objects))
-                 (is (every? #(re-matches #"object/.+" %)
-                             objects))))))))
-
 ;; TODO:
-;; * Tests for querying objects
+;; * Tests for querying object properties
