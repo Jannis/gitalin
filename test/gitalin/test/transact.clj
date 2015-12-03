@@ -155,12 +155,6 @@
   (let [mutations (apply concat (map :data transactions))]
     (group-by second mutations)))
 
-(defn group-mutations-by-uuid-and-prop [mutations-by-uuid]
-  (into {}
-        (map (fn [[uuid mutations]]
-               [uuid (group-by #(get % 3) mutations)]))
-        mutations-by-uuid))
-
 (defn collect-prop-val [res mutation]
   (let [prop (mutation 2)
         val (mutation 3)]
@@ -180,6 +174,29 @@
                               mutations))]))
         mutations-by-uuid))
 
+(defn query-prop-vals-for-uuids [conn uuids]
+  (let [prop-vals (map #(vector %
+                                (c/q conn
+                                     '{:find [?p ?v]
+                                       :in ?u
+                                       :where [[?ref :ref/name "HEAD"]
+                                               [?ref :ref/commit ?c]
+                                               [?c :commit/object ?o]
+                                               [?o :object/uuid ?u]
+                                               [?o ?p ?v]]}
+                                     %))
+                       uuids)]
+    (into {}
+          (map (fn [[uuid props]]
+                 [uuid
+                  (into #{}
+                        (filter #(condp = (first %)
+                                   :object/uuid false
+                                   :object/commit false
+                                   %)
+                                props))]))
+          prop-vals)))
+
 (defspec sets-after-additions-change-objects-as-expected 10
   (prop/for-all [store setup/gen-store
                  txs setup/gen-add-set-transactions]
@@ -187,50 +204,12 @@
       (doseq [{:keys [info data]} txs]
         (c/transact! conn info data))
       (let [mutations-by-uuid (group-mutations-by-uuid txs)
-            props-by-uuid (->> mutations-by-uuid
-                               (map (fn [[uuid mutations]]
-                                      [uuid (mapv #(subvec % 2 4)
-                                                  mutations)]))
-                               (map (fn [[uuid props]]
-                                      [uuid (group-by first
-                                                      props)])))
-            last-prop-vals (map (fn [[uuid prop-map]]
-                                  [(cond-> uuid (a/tempid? uuid) :uuid)
-                                   (into #{}
-                                         (map (fn [[prop vals]]
-                                                [prop (second
-                                                       (last vals))]))
-                                         prop-map)])
-                                props-by-uuid)
-            expected-prop-vals (into {} last-prop-vals)
             expected-uuids (into #{}
-                                (map #(cond-> % (a/tempid? %) :uuid))
-                                (keys mutations-by-uuid))
-            actual-prop-vals (map #(vector
-                                    %
-                                    (c/q conn
-                                         '{:find [?p ?v]
-                                           :in ?u
-                                           :where
-                                           [[?ref :ref/name "HEAD"]
-                                            [?ref :ref/commit ?c]
-                                            [?c :commit/object ?o]
-                                            [?o :object/uuid ?u]
-                                            [?o ?p ?v]]}
-                                         %))
-                                  expected-uuids)
-            actual-prop-vals (into {}
-                                   (map (fn [[uuid props]]
-                                          [uuid
-                                           (into
-                                            #{}
-                                            (filter
-                                             #(condp = (first %)
-                                                :object/uuid false
-                                                :object/commit false
-                                                %)
-                                             props))]))
-                                   actual-prop-vals)]
+                                 (map #(cond-> % (a/tempid? %) :uuid))
+                                 (keys mutations-by-uuid))
+            expected-prop-vals (collect-uuid-prop-vals mutations-by-uuid)
+            actual-prop-vals (query-prop-vals-for-uuids conn
+                                                        expected-uuids)]
         (and (is (= expected-uuids
                     (c/q conn '{:find ?u
                                 :where [[?ref :ref/name "HEAD"]
@@ -250,34 +229,9 @@
             expected-uuids (into #{}
                                  (map #(cond-> % (a/tempid? %) :uuid))
                                  (keys mutations-by-uuid))
-            prop-vals-by-uuid (group-mutations-by-uuid-and-prop
-                               mutations-by-uuid)
             expected-prop-vals (collect-uuid-prop-vals mutations-by-uuid)
-            actual-prop-vals (map #(vector
-                                    %
-                                    (c/q conn
-                                         '{:find [?p ?v]
-                                           :in ?u
-                                           :where
-                                           [[?ref :ref/name "HEAD"]
-                                            [?ref :ref/commit ?c]
-                                            [?c :commit/object ?o]
-                                            [?o :object/uuid ?u]
-                                            [?o ?p ?v]]}
-                                         %))
-                                  expected-uuids)
-            actual-prop-vals (into {}
-                                   (map (fn [[uuid props]]
-                                          [uuid
-                                           (into
-                                            #{}
-                                            (filter
-                                             #(condp = (first %)
-                                                :object/uuid false
-                                                :object/commit false
-                                                %)
-                                             props))]))
-                                   actual-prop-vals)]
+            actual-prop-vals (query-prop-vals-for-uuids conn
+                                                        expected-uuids)]
         (and (is (= expected-uuids
                     (c/q conn '{:find ?u
                                 :where [[?ref :ref/name "HEAD"]
