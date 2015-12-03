@@ -141,3 +141,38 @@
   (gen/vector-distinct
    (gen/hash-map :info gen-transaction-info-HEAD
                  :data gen-add-set-mutations)))
+
+(defn gen-unset-mutation-for-uuid [uuid]
+  (gen/fmap vec
+            (gen/tuple (gen/return :object/unset)
+                       (gen/return uuid)
+                       gen/keyword
+                       gen/any)))
+
+(defn gen-unset-mutations-for-uuid [uuid]
+  (gen/vector
+   (gen/bind (gen/return uuid)
+             gen-unset-mutation-for-uuid)))
+
+(defn gen-add-set-unset-mutations-for-uuid [uuid]
+  (gen/fmap (fn [[add sets]]
+              (into [] (concat [add] sets)))
+            (gen/tuple
+             (gen/bind (gen/return uuid)
+                       gen-add-mutation-for-uuid)
+             (gen/bind (gen/return uuid)
+                       gen-set-mutations-for-uuid)
+             (gen/bind (gen/return uuid)
+                       gen-unset-mutations-for-uuid))))
+
+(def gen-add-set-unset-mutations
+  (gen/fmap (fn [mutation-groups]
+              (into [] (apply concat mutation-groups)))
+            (gen/vector-distinct
+             (gen/bind gen-tempid
+                       gen-add-set-unset-mutations-for-uuid))))
+
+(def gen-add-set-unset-transactions
+  (gen/vector-distinct
+   (gen/hash-map :info gen-transaction-info-HEAD
+                 :data gen-add-set-unset-mutations)))

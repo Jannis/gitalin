@@ -63,6 +63,21 @@
     (-> context
         (assoc :tree new-tree))))
 
+(defmethod mutate-step :object/unset
+  [context [_ uuid property value]]
+  (let [repo (:repo context)
+        tree (:tree context)
+        real-uuid (if (tempid? uuid)
+                    (get-in context [:tempids uuid])
+                    uuid)
+        object (objects/load repo tree real-uuid)
+        object (update-in object :properties dissoc property)
+        blob (objects/make-blob repo object)
+        entry (objects/to-tree-entry object blob)
+        new-tree (tree/update-entry repo tree entry)]
+    (-> context
+        (assoc :tree new-tree))))
+
 (defn commit! [repo info parents tree]
   (commit/make repo tree parents
                :author (ident/from-map (:author info))
