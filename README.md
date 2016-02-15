@@ -65,7 +65,7 @@ Create a store and connect to it:
 
 (g/create-store! "/tmp/test-store")
 
-(def store (g/default-adapter "/tmp/test/store"))
+(def store (g/default-adapter "/tmp/test-store"))
 (def conn (g/connect store))
 ```
 
